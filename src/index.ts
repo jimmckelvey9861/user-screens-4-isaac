@@ -11,16 +11,13 @@ import screensRoutes from './routes/screens';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3003;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(logger);
-
-// Serve static files
-app.use(express.static('public'));
 
 // Routes
 app.get('/', (req, res) => {
@@ -41,6 +38,9 @@ app.get('/', (req, res) => {
 app.use('/health', healthRoutes);
 app.use('/api', apiRoutes);
 app.use('/api/screens', screensRoutes);
+
+// Serve static files (after API routes)
+app.use(express.static('public'));
 
 // Error handling middleware (must be last)
 app.use(errorHandler);

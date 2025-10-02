@@ -39,24 +39,33 @@ express_server/
 
 1. **Install dependencies**
    ```bash
-   npm install
+   bun install
    ```
 
 2. **Start development server**
    ```bash
-   npm run dev
+   bun run dev
    ```
 
 3. **Access the server**
-   - Server: http://localhost:3000
-   - API Documentation: http://localhost:3000
-   - Health Check: http://localhost:3000/health
+   - Server: http://localhost:3003
+   - API Documentation: http://localhost:3003
+   - Health Check: http://localhost:3003/health
+
+### Why Bun?
+
+This project uses [Bun](https://bun.sh/) instead of npm for better performance and compatibility with corporate security environments. Bun provides:
+- ⚡ **Faster installs** - Up to 10x faster than npm
+- 🔒 **Better security compatibility** - Works well with corporate firewalls
+- 🔄 **Hot reload** - Built-in watch mode with `--watch`
+- 📦 **All-in-one** - Runtime, bundler, and package manager
 
 ## Available Scripts
 
-- `npm run dev` - Start development server with hot reload
-- `npm run build` - Build TypeScript to JavaScript
-- `npm start` - Start production server (requires build first)
+- `bun run dev` - Start development server with hot reload
+- `bun run build` - Build TypeScript to JavaScript
+- `bun start` - Start production server with Bun
+- `bun run start:prod` - Start production server with Node.js (requires build first)
 
 ## API Endpoints
 
