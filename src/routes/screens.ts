@@ -598,7 +598,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                                       borderRadius: shift.isFirst && shift.isLast ? '4px' : 
                                                    shift.isFirst ? '4px 4px 0 0' : 
                                                    shift.isLast ? '0 0 4px 4px' : '0',
-                                      zIndex: 10
+                                      zIndex: shift.isFirst ? 50 : 10
                                     }}
                                   >
                                     {shift.status === 'assigned' && (
@@ -622,6 +622,43 @@ router.get('/employee-scheduling', (req, res, next) => {
                                           borderRadius: 'inherit'
                                         }}
                                       />
+                                    )}
+                                    
+                                    {/* Shift Labels - render once on first slot, span full shift height */}
+                                    {shift.isFirst && (
+                                      <div
+                                        style={{
+                                          position: 'absolute',
+                                          top: '0',
+                                          left: '50%',
+                                          transform: 'translateX(-50%)',
+                                          height: (shift.totalHeight) + 'px',
+                                          pointerEvents: 'none',
+                                          zIndex: 50
+                                        }}
+                                      >
+                                        <div
+                                          style={{
+                                            position: 'absolute',
+                                            top: '30%',
+                                            left: '50%',
+                                            transform: 'translate(-50%, -50%) rotate(90deg)',
+                                            backgroundColor: 'rgba(0,0,0,0.5)',
+                                            padding: '4px 8px',
+                                            borderRadius: '4px',
+                                            color: 'white',
+                                            fontSize: '12px',
+                                            fontWeight: 'bold',
+                                            textAlign: 'center',
+                                            lineHeight: '1.2',
+                                            whiteSpace: 'nowrap'
+                                          }}
+                                        >
+                                          <div>{formatTime(shift.startHour, shift.startMinute)} - {formatTime(shift.endHour, shift.endMinute)}</div>
+                                          <div>{shift.role.charAt(0).toUpperCase() + shift.role.slice(1)}</div>
+                                          <div>{shift.location}</div>
+                                        </div>
+                                      </div>
                                     )}
                                   </div>
                                 )}
