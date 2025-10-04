@@ -211,10 +211,12 @@ router.get('/employee-scheduling', (req, res, next) => {
             const ScheduleTab = () => {
               const [viewMode, setViewMode] = useState('week');
               const [showOpenShifts, setShowOpenShifts] = useState(false);
+              const [is24HourView, setIs24HourView] = useState(false);
               const [editingAvailability, setEditingAvailability] = useState(false);
               const [availabilityBrush, setAvailabilityBrush] = useState('available');
               const [isDrawing, setIsDrawing] = useState(false);
               const brushRef = useRef(availabilityBrush);
+              const prevTimeSlotsRef = useRef(null);
               
               useEffect(() => {
                 brushRef.current = availabilityBrush;
@@ -247,7 +249,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                   endMinute: 0,
                   role: 'manager',
                   location: 'Branch',
-                  status: 'assigned'
+                  status: 'open'
                 },
                 {
                   id: 3,
@@ -271,40 +273,46 @@ router.get('/employee-scheduling', (req, res, next) => {
               };
 
               const weekDays = ['Sun 21', 'Mon 22', 'Tue 23', 'Wed 24', 'Thu 25', 'Fri 26', 'Sat 27'];
-              
-              const generateTimeSlots = () => {
+
+              const generateTimeSlotsForView = (use24HourView) => {
                 const slots = [];
-                // Consider the entire week's hours + 1 hour buffer
-                // Find the earliest opening and latest closing times across all days
-                let earliestOpen = 24;
-                let latestClose = 0;
-                
-                for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-                  const dayHours = getStoreHours(dayIndex);
-                  earliestOpen = Math.min(earliestOpen, dayHours.open);
-                  latestClose = Math.max(latestClose, dayHours.close);
+                let startHour;
+                let endHour;
+                if (use24HourView) {
+                  startHour = 0;
+                  endHour = 24;
+                } else {
+                  // Consider the entire week's hours + 1 hour buffer
+                  // Find the earliest opening and latest closing times across all days
+                  let earliestOpen = 24;
+                  let latestClose = 0;
+                  for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+                    const dayHours = getStoreHours(dayIndex);
+                    earliestOpen = Math.min(earliestOpen, dayHours.open);
+                    latestClose = Math.max(latestClose, dayHours.close);
+                  }
+                  startHour = earliestOpen - 1; // 1 hour before earliest open
+                  endHour = latestClose + 1; // 1 hour after latest close
                 }
-                
-                const startHour = earliestOpen - 1; // 1 hour before earliest open
-                const endHour = latestClose + 1; // 1 hour after latest close
-                
                 for (let hour = startHour; hour < endHour; hour += 0.5) {
                   const hourInt = Math.floor(hour);
                   const minute = (hour % 1 === 0) ? 0 : 30;
-                  slots.push({ 
-                    hour: hourInt, 
-                    minute, 
-                    label: (hour % 1 === 0 && (hour === startHour || hourInt % 2 === 0)) ? formatHour(hourInt) : '' 
+                  slots.push({
+                    hour: hourInt,
+                    minute,
+                    label: (hour % 1 === 0 && (hour === startHour || hourInt % 2 === 0)) ? formatHour(hourInt) : ''
                   });
                 }
                 return slots;
               };
 
+              const generateTimeSlots = () => generateTimeSlotsForView(is24HourView);
+
               const formatHour = (hour) => {
                 if (hour === 0) return '12a';
-                if (hour < 12) return \`\${hour}a\`;
+                if (hour < 12) return hour + 'a';
                 if (hour === 12) return '12p';
-                return \`\${hour - 12}p\`;
+                return (hour - 12) + 'p';
               };
 
               const isOutsideStoreHours = (dayIndex, hour) => {
@@ -314,6 +322,13 @@ router.get('/employee-scheduling', (req, res, next) => {
               };
 
               const [timeSlots, setTimeSlots] = useState(() => generateTimeSlots());
+              
+              // Regenerate slots when toggling 24h view
+              useEffect(() => {
+                // store previous before regenerating for mapping
+                prevTimeSlotsRef.current = timeSlots;
+                setTimeSlots(generateTimeSlots());
+              }, [is24HourView]);
 
               const [availability, setAvailability] = useState(() => {
                 const initial = {};
@@ -321,7 +336,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                   weekDays.forEach((day, dayIndex) => {
                     const slots = generateTimeSlots();
                     slots.forEach((slot, slotIndex) => {
-                      const key = \`\${dayIndex}-\${slotIndex}\`;
+                      const key = dayIndex + '-' + slotIndex;
                       if (isOutsideStoreHours(dayIndex, slot.hour)) {
                         initial[key] = 3;
                       } else {
@@ -342,9 +357,24 @@ router.get('/employee-scheduling', (req, res, next) => {
                 return initial;
               });
 
+              // Rebuild availability defaults when the number of time slots changes (e.g., toggling 24h view)
+              useEffect(() => {
+                setAvailability(() => {
+                  const next = {};
+                  for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+                    for (let slotIndex = 0; slotIndex < timeSlots.length; slotIndex++) {
+                      const slot = timeSlots[slotIndex];
+                      const key = dayIndex + '-' + slotIndex;
+                      next[key] = isOutsideStoreHours(dayIndex, slot.hour) ? 3 : 1;
+                    }
+                  }
+                  return next;
+                });
+              }, [timeSlots]);
+
               const handleCellMouseDown = (dayIndex, slotIndex) => {
                 if (!editingAvailability) return;
-                const key = \`\${dayIndex}-\${slotIndex}\`;
+                const key = dayIndex + '-' + slotIndex;
                 const currentState = availability[key];
                 if (currentState === 3) return;
                 
@@ -367,7 +397,7 @@ router.get('/employee-scheduling', (req, res, next) => {
 
               const handleCellMouseEnter = (dayIndex, slotIndex) => {
                 if (!editingAvailability || !isDrawing) return;
-                const key = \`\${dayIndex}-\${slotIndex}\`;
+                const key = dayIndex + '-' + slotIndex;
                 const currentState = availability[key];
                 if (currentState === 3) return;
                 
@@ -402,10 +432,12 @@ router.get('/employee-scheduling', (req, res, next) => {
               };
 
               const timeToSlotIndex = (hour, minute) => {
-                const startHour = 8; // Always start from 8am (earliest opening - 1 hour buffer)
-                const hourOffset = hour - startHour;
-                const slotIndex = hourOffset * 2 + (minute === 30 ? 1 : 0);
-                return slotIndex;
+                if (!timeSlots || timeSlots.length === 0) return 0;
+                const first = timeSlots[0];
+                const startMinutes = first.hour * 60 + (first.minute || 0);
+                const currentMinutes = hour * 60 + (minute || 0);
+                const diff = currentMinutes - startMinutes;
+                return Math.max(0, Math.floor(diff / 30));
               };
 
               const getShiftAtSlot = (dayIndex, slotIndex) => {
@@ -435,8 +467,8 @@ router.get('/employee-scheduling', (req, res, next) => {
 
               const formatTime = (hour, minute) => {
                 const period = hour >= 12 ? 'p' : 'a';
-                const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-                return \`\${displayHour}:\${minute.toString().padStart(2, '0')}\${period}\`;
+                const displayHour = hour === 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+                return displayHour + ':' + minute.toString().padStart(2, '0') + period;
               };
 
               return (
@@ -446,11 +478,9 @@ router.get('/employee-scheduling', (req, res, next) => {
 
                       <button 
                         onClick={() => setEditingAvailability(!editingAvailability)}
-                        className={\`px-3 py-1 rounded text-sm border \${
-                          editingAvailability 
+                        className={("px-3 py-1 rounded text-sm border " + (editingAvailability 
                             ? 'bg-blue-600 text-white border-blue-600' 
-                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                        }\`}
+                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'))}
                       >
                         Edit Availability
                       </button>
@@ -463,6 +493,15 @@ router.get('/employee-scheduling', (req, res, next) => {
                           className="w-3 h-3"
                         />
                         <span>Open Shifts</span>
+                      </label>
+                      <label className="flex items-center gap-1 cursor-pointer text-sm">
+                        <input 
+                          type="checkbox" 
+                          checked={is24HourView}
+                          onChange={(e) => setIs24HourView(e.target.checked)}
+                          className="w-3 h-3"
+                        />
+                        <span>24h View</span>
                       </label>
                     </div>
 
@@ -484,11 +523,9 @@ router.get('/employee-scheduling', (req, res, next) => {
                           <button
                             key={mode}
                             onClick={() => setViewMode(mode.toLowerCase())}
-                            className={\`px-2 py-1 rounded text-sm \${
-                              viewMode === mode.toLowerCase() 
+                            className={("px-2 py-1 rounded text-sm " + (viewMode === mode.toLowerCase() 
                                 ? 'bg-white shadow' 
-                                : 'hover:bg-gray-200'
-                            }\`}
+                                : 'hover:bg-gray-200'))}
                           >
                             {mode}
                           </button>
@@ -565,7 +602,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                             {slot.label}
                           </div>
                           {weekDays.map((day, dayIndex) => {
-                            const key = \`\${dayIndex}-\${slotIndex}\`;
+                            const key = dayIndex + '-' + slotIndex;
                             const cellState = availability[key];
                             const cellColor = getCellColor(cellState);
                             const shift = getShiftAtSlot(dayIndex, slotIndex);
@@ -573,7 +610,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                             return (
                               <div 
                                 key={key}
-                                className={\`border-r border-b border-gray-300 \${cellColor}\`}
+                                className={("border-r border-b border-gray-300 " + cellColor)}
                                 style={{
                                   height: '20px',
                                   cursor: editingAvailability && cellState !== 3 ? 'crosshair' : 'default',
@@ -592,9 +629,9 @@ router.get('/employee-scheduling', (req, res, next) => {
                                       left: '4px',
                                       right: '4px',
                                       backgroundColor: roleColors[shift.role],
-                                      border: \`2px solid \${roleColors[shift.role]}\`,
-                                      borderTop: shift.isFirst ? \`2px solid \${roleColors[shift.role]}\` : 'none',
-                                      borderBottom: shift.isLast ? \`2px solid \${roleColors[shift.role]}\` : 'none',
+                                      border: '2px solid ' + roleColors[shift.role],
+                                      borderTop: shift.isFirst ? ('2px solid ' + roleColors[shift.role]) : 'none',
+                                      borderBottom: shift.isLast ? ('2px solid ' + roleColors[shift.role]) : 'none',
                                       borderRadius: shift.isFirst && shift.isLast ? '4px' : 
                                                    shift.isFirst ? '4px 4px 0 0' : 
                                                    shift.isLast ? '0 0 4px 4px' : '0',
@@ -612,14 +649,18 @@ router.get('/employee-scheduling', (req, res, next) => {
                                         }}
                                       />
                                     )}
-                                    {shift.status === 'open' && (
-                                      <div 
+                                    {shift.status === 'open' && shift.isFirst && (
+                                      <div
                                         className="rounded"
                                         style={{
                                           position: 'absolute',
-                                          inset: '0',
-                                          backgroundColor: 'rgba(255,255,255,0.5)',
-                                          borderRadius: 'inherit'
+                                          top: 0,
+                                          left: 0,
+                                          right: 0,
+                                          height: (shift.totalHeight) + 'px',
+                                          background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.6) 10px, transparent 10px, transparent 20px)',
+                                          borderRadius: 'inherit',
+                                          zIndex: 40
                                         }}
                                       />
                                     )}
@@ -640,7 +681,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                                         <div
                                           style={{
                                             position: 'absolute',
-                                            top: '30%',
+                                            top: '60px',
                                             left: '50%',
                                             transform: 'translate(-50%, -50%) rotate(90deg)',
                                             backgroundColor: 'rgba(0,0,0,0.5)',
@@ -702,9 +743,28 @@ router.get('/employee-scheduling', (req, res, next) => {
                     </div>
                     <div className="flex items-center gap-1">
                       <div className="w-8 h-4 rounded relative" style={{backgroundColor: roleColors.barista}}>
-                        <div className="absolute inset-0 rounded" style={{backgroundColor: 'rgba(255,255,255,0.5)'}}></div>
+                        <div className="absolute inset-0 rounded" style={{background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.6) 10px, transparent 10px, transparent 20px)'}}></div>
                       </div>
                       <span>Open Shift</span>
+                    </div>
+                  </div>
+
+                  {/* Open Shift Samples */}
+                  <div className="mt-4">
+                    <div className="text-xs text-gray-600 mb-1">Open Shift Samples</div>
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <div className="text-xs text-gray-500 mb-1">Barista (Open)</div>
+                        <div className="h-10 rounded relative" style={{backgroundColor: roleColors.barista}}>
+                          <div className="absolute inset-0 rounded" style={{background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.6) 10px, transparent 10px, transparent 20px)'}}></div>
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <div className="text-xs text-gray-500 mb-1">Barista (Open, Tall)</div>
+                        <div className="h-16 rounded relative" style={{backgroundColor: roleColors.barista}}>
+                          <div className="absolute inset-0 rounded" style={{background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.6) 10px, transparent 10px, transparent 20px)'}}></div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -944,18 +1004,21 @@ router.put('/:id', (req, res, next) => {
     return next(createError('Name, type, and description are required', 400));
   }
   
-  screens[screenIndex] = {
-    ...screens[screenIndex],
+  const current = screens[screenIndex]!;
+  const updated = {
+    ...current,
     name,
     type,
     description,
-    components: components || screens[screenIndex].components,
-    status: status || screens[screenIndex].status
-  };
+    components: components || current.components,
+    status: status || current.status
+  } as typeof screens[number];
+  
+  screens[screenIndex] = updated;
   
   res.json({
     success: true,
-    data: screens[screenIndex],
+    data: screens[screenIndex]!,
     message: 'Screen updated successfully',
     timestamp: new Date().toISOString()
   });
