@@ -99,7 +99,7 @@ router.get('/employee-scheduling', (req, res, next) => {
         <div id="root"></div>
         
         <script type="text/babel">
-            const { useState, useEffect, useRef } = React;
+            const { useState, useEffect, useRef, useMemo } = React;
             
             // Simple SVG icon components
             const Calendar = ({ className, ...props }) => (
@@ -217,6 +217,8 @@ router.get('/employee-scheduling', (req, res, next) => {
               const [isDrawing, setIsDrawing] = useState(false);
               const brushRef = useRef(availabilityBrush);
               const prevTimeSlotsRef = useRef(null);
+              const [startOffsetDays, setStartOffsetDays] = useState(0);
+              const monthLength = 31; // simple month length for demo; wraps after 31
               
               useEffect(() => {
                 brushRef.current = availabilityBrush;
@@ -261,8 +263,52 @@ router.get('/employee-scheduling', (req, res, next) => {
                   role: 'barista',
                   location: 'Main Store',
                   status: 'open'
+                },
+                // Samples: Assigned but unaccepted (solid 50% white cover)
+                {
+                  id: 4,
+                  dayIndex: 0, // Sunday
+                  startHour: 12,
+                  startMinute: 0,
+                  endHour: 16,
+                  endMinute: 0,
+                  role: 'barista',
+                  location: 'Main Store',
+                  status: 'assigned'
+                },
+                {
+                  id: 5,
+                  dayIndex: 2, // Tuesday
+                  startHour: 8,
+                  startMinute: 0,
+                  endHour: 12,
+                  endMinute: 0,
+                  role: 'manager',
+                  location: 'Branch',
+                  status: 'assigned'
+                },
+                {
+                  id: 6,
+                  dayIndex: 1, // Monday
+                  startHour: 15,
+                  startMinute: 0,
+                  endHour: 19,
+                  endMinute: 0,
+                  role: 'manager',
+                  location: 'Branch',
+                  status: 'accepted'
                 }
               ];
+
+              // When in 2W view, duplicate the same shifts into week 2 (dayIndex + 7)
+              const weeksToShow = viewMode === '2w' ? 2 : 1;
+              const displayShifts = useMemo(() => {
+                if (weeksToShow === 2) {
+                  const duplicated = shifts.map(s => ({ ...s, id: s.id + 1000, dayIndex: s.dayIndex + 7 }));
+                  return shifts.concat(duplicated);
+                }
+                return shifts;
+              }, [weeksToShow]);
 
               const getStoreHours = (dayIndex) => {
                 const isWeekend = dayIndex === 0 || dayIndex === 6;
@@ -272,7 +318,87 @@ router.get('/employee-scheduling', (req, res, next) => {
                 };
               };
 
-              const weekDays = ['Sun 21', 'Mon 22', 'Tue 23', 'Wed 24', 'Thu 25', 'Fri 26', 'Sat 27'];
+              const baseWeekDays = ['Sun 21', 'Mon 22', 'Tue 23', 'Wed 24', 'Thu 25', 'Fri 26', 'Sat 27'];
+              const getWeekDays = (weeks, offsetDays) => {
+                const result = [];
+                for (let w = 0; w < weeks; w++) {
+                  baseWeekDays.forEach(label => {
+                    const parts = label.split(' ');
+                    const name = parts[0];
+                    const baseNum = parseInt(parts[1], 10);
+                    const added = baseNum + (w * 7) + (offsetDays || 0);
+                    const num = (((added - 1) % monthLength) + monthLength) % monthLength + 1; // wrap 1..monthLength
+                    result.push(name + ' ' + num);
+                  });
+                }
+                return result;
+              };
+              const selectedDayIndex = 1; // Monday as the Day view target
+              const getDaysForView = () => {
+                if (viewMode === 'd') {
+                  const labels = getWeekDays(1, startOffsetDays);
+                  const baseMod7 = ((startOffsetDays % 7) + 7) % 7;
+                  return { labels: [labels[selectedDayIndex]], indices: [ (selectedDayIndex + baseMod7) % 7 ] };
+                }
+                if (weeksToShow === 2) {
+                  const labels = getWeekDays(2, startOffsetDays);
+                  const baseMod14 = ((startOffsetDays % 14) + 14) % 14;
+                  return { labels, indices: Array.from({ length: 14 }, (_, i) => (i + baseMod14) % 14) };
+                }
+                const labels = getWeekDays(1, startOffsetDays);
+                const baseMod7 = ((startOffsetDays % 7) + 7) % 7;
+                return { labels, indices: Array.from({ length: 7 }, (_, i) => (i + baseMod7) % 7) };
+              };
+              const daysForView = getDaysForView();
+              const weekDays = daysForView.labels;
+              const dayIndices = daysForView.indices;
+
+              // Month view renderer
+              const renderMonthView = () => {
+                const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                const totalCells = 35; // 5 weeks grid for simplicity
+                const startNumber = (((1 + startOffsetDays) - 1) % monthLength + monthLength) % monthLength + 1;
+                const cells = [];
+                for (let i = 0; i < totalCells; i++) {
+                  const dayNum = (((startNumber + i) - 1) % monthLength) + 1;
+                  const dow = i % 7;
+                  const shiftsForDow = displayShifts.filter(s => s.dayIndex === dow);
+                  const single = shiftsForDow.length === 1;
+                  const chipHeight = single ? 40 : 26;
+                  const chipsToShow = single ? shiftsForDow.slice(0, 1) : shiftsForDow.slice(0, 2);
+                  cells.push({ dayNum, dow, chipsToShow, chipHeight });
+                }
+
+                return (
+                  <div className="bg-white rounded border border-gray-300" style={{overflow: 'hidden'}}>
+                    <div className="grid" style={{gridTemplateColumns: 'repeat(7, 1fr)'}}>
+                      {dayNames.map((d, i) => (
+                        <div key={i} className="border-r border-b border-gray-300 bg-gray-50 p-2 text-center text-sm font-medium">{d}</div>
+                      ))}
+                      {cells.map((cell, idx) => (
+                        <div key={idx} className="border-r border-b border-gray-200" style={{minHeight: '100px', padding: '6px'}}>
+                          <div className="text-xs text-gray-600 mb-1">{cell.dayNum}</div>
+                          <div className="flex flex-col gap-1">
+                            {cell.chipsToShow.map((shift, si) => (
+                              <div key={si} className="rounded relative" style={{height: cell.chipHeight + 'px', backgroundColor: roleColors[shift.role], border: '1px solid ' + roleColors[shift.role]}}>
+                                {shift.status === 'assigned' && (
+                                  <div className="absolute inset-0 rounded" style={{backgroundColor: 'rgba(255,255,255,0.5)'}}></div>
+                                )}
+                                {shift.status === 'open' && (
+                                  <div className="absolute inset-0 rounded" style={{background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.6) 10px, transparent 10px, transparent 20px)'}}></div>
+                                )}
+                                <div className="absolute left-1 right-1 top-1 text-[10px] font-semibold text-white drop-shadow-sm truncate" style={{lineHeight: '1'}}>
+                                  {shift.role.charAt(0).toUpperCase() + shift.role.slice(1)}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              };
 
               const generateTimeSlotsForView = (use24HourView) => {
                 const slots = [];
@@ -357,20 +483,21 @@ router.get('/employee-scheduling', (req, res, next) => {
                 return initial;
               });
 
-              // Rebuild availability defaults when the number of time slots changes (e.g., toggling 24h view)
+              // Rebuild availability defaults when the number of time slots or days changes
               useEffect(() => {
-                setAvailability(() => {
+                setAvailability(prev => {
                   const next = {};
-                  for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+                  for (let dayIndex = 0; dayIndex < weekDays.length; dayIndex++) {
                     for (let slotIndex = 0; slotIndex < timeSlots.length; slotIndex++) {
                       const slot = timeSlots[slotIndex];
                       const key = dayIndex + '-' + slotIndex;
-                      next[key] = isOutsideStoreHours(dayIndex, slot.hour) ? 3 : 1;
+                      const prevVal = prev[key];
+                      next[key] = (typeof prevVal === 'number') ? prevVal : (isOutsideStoreHours(dayIndex, slot.hour) ? 3 : 1);
                     }
                   }
                   return next;
                 });
-              }, [timeSlots]);
+              }, [timeSlots, weekDays.length]);
 
               const handleCellMouseDown = (dayIndex, slotIndex) => {
                 if (!editingAvailability) return;
@@ -444,7 +571,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                 const slot = timeSlots[slotIndex];
                 if (!slot) return null;
 
-                for (const shift of shifts) {
+                for (const shift of displayShifts) {
                   if (shift.dayIndex !== dayIndex) continue;
 
                   const shiftStartSlot = timeToSlotIndex(shift.startHour, shift.startMinute);
@@ -507,13 +634,19 @@ router.get('/employee-scheduling', (req, res, next) => {
 
                     <div className="flex items-center gap-3">
                       <div className="flex items-center gap-2">
-                        <button className="p-1 hover:bg-gray-100 rounded">
+                        <button className="p-1 hover:bg-gray-100 rounded" onClick={() => {
+                          const step = (viewMode === '2w') ? 14 : ((viewMode === 'm' || viewMode === 'month') ? monthLength : ((viewMode === 'w' || viewMode === 'week') ? 7 : 1));
+                          setStartOffsetDays(prev => prev - step);
+                        }}>
                           <ChevronDown className="w-4 h-4 rotate-90" />
                         </button>
-                        <button className="px-3 py-1 text-sm hover:bg-gray-100 rounded">
+                        <button className="px-3 py-1 text-sm hover:bg-gray-100 rounded" onClick={() => setStartOffsetDays(0)}>
                           Now
                         </button>
-                        <button className="p-1 hover:bg-gray-100 rounded">
+                        <button className="p-1 hover:bg-gray-100 rounded" onClick={() => {
+                          const step = (viewMode === '2w') ? 14 : ((viewMode === 'm' || viewMode === 'month') ? monthLength : ((viewMode === 'w' || viewMode === 'week') ? 7 : 1));
+                          setStartOffsetDays(prev => prev + step);
+                        }}>
                           <ChevronDown className="w-4 h-4 -rotate-90" />
                         </button>
                       </div>
@@ -587,129 +720,154 @@ router.get('/employee-scheduling', (req, res, next) => {
                     </div>
                   )}
 
-                  <div className="bg-white rounded border border-gray-300 relative" style={{overflow: 'visible'}}>
-                    <div className="grid" style={{gridTemplateColumns: 'auto repeat(7, 1fr)', overflow: 'visible'}}>
-                      <div className="border-r border-b border-gray-300 bg-gray-50 p-2"></div>
-                      {weekDays.map((day, i) => (
-                        <div key={i} className="border-r border-b border-gray-300 bg-gray-50 p-2 text-center">
-                          <div className="text-sm font-medium">{day}</div>
-                        </div>
-                      ))}
-
-                      {timeSlots.map((slot, slotIndex) => (
-                        <React.Fragment key={slotIndex}>
-                          <div className="border-r border-b border-gray-300 bg-gray-50 px-2 text-xs text-gray-600 text-right flex items-center justify-end select-none pointer-events-none" style={{height: '20px'}}>
-                            {slot.label}
+                  {viewMode === 'd' && (
+                    <div className="bg-white rounded border border-gray-300 px-4 py-2 mb-3 flex items-center gap-4">
+                      <div className="text-sm font-medium text-gray-800">Day: {weekDays[0]}</div>
+                      {(() => {
+                        const ds = displayShifts.filter(s => s.dayIndex === selectedDayIndex);
+                        const accepted = ds.filter(s => s.status === 'accepted').length;
+                        const assigned = ds.filter(s => s.status === 'assigned').length;
+                        const open = ds.filter(s => s.status === 'open').length;
+                        return (
+                          <div className="text-xs text-gray-600">
+                            Shifts: {ds.length} • Accepted: {accepted} • Assigned: {assigned} • Open: {open}
                           </div>
-                          {weekDays.map((day, dayIndex) => {
-                            const key = dayIndex + '-' + slotIndex;
-                            const cellState = availability[key];
-                            const cellColor = getCellColor(cellState);
-                            const shift = getShiftAtSlot(dayIndex, slotIndex);
-                            
-                            return (
-                              <div 
-                                key={key}
-                                className={("border-r border-b border-gray-300 " + cellColor)}
-                                style={{
-                                  height: '20px',
-                                  cursor: editingAvailability && cellState !== 3 ? 'crosshair' : 'default',
-                                  position: 'relative'
-                                }}
-                                onMouseDown={() => handleCellMouseDown(dayIndex, slotIndex)}
-                                onMouseEnter={() => handleCellMouseEnter(dayIndex, slotIndex)}
-                              >
-                                {shift && (
-                                  <div 
-                                    className="rounded"
-                                    style={{
-                                      position: 'absolute',
-                                      top: shift.isFirst ? '0' : '-1px',
-                                      bottom: shift.isLast ? '0' : '-1px',
-                                      left: '4px',
-                                      right: '4px',
-                                      backgroundColor: roleColors[shift.role],
-                                      border: '2px solid ' + roleColors[shift.role],
-                                      borderTop: shift.isFirst ? ('2px solid ' + roleColors[shift.role]) : 'none',
-                                      borderBottom: shift.isLast ? ('2px solid ' + roleColors[shift.role]) : 'none',
-                                      borderRadius: shift.isFirst && shift.isLast ? '4px' : 
-                                                   shift.isFirst ? '4px 4px 0 0' : 
-                                                   shift.isLast ? '0 0 4px 4px' : '0',
-                                      zIndex: shift.isFirst ? 50 : 10
-                                    }}
-                                  >
-                                    {shift.status === 'assigned' && (
-                                      <div 
-                                        className="rounded"
-                                        style={{
-                                          position: 'absolute',
-                                          inset: '0',
-                                          background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.5) 0px, rgba(255,255,255,0.5) 2px, transparent 2px, transparent 4px)',
-                                          borderRadius: 'inherit'
-                                        }}
-                                      />
-                                    )}
-                                    {shift.status === 'open' && shift.isFirst && (
-                                      <div
-                                        className="rounded"
-                                        style={{
-                                          position: 'absolute',
-                                          top: 0,
-                                          left: 0,
-                                          right: 0,
-                                          height: (shift.totalHeight) + 'px',
-                                          background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.6) 10px, transparent 10px, transparent 20px)',
-                                          borderRadius: 'inherit',
-                                          zIndex: 40
-                                        }}
-                                      />
-                                    )}
-                                    
-                                    {/* Shift Labels - render once on first slot, span full shift height */}
-                                    {shift.isFirst && (
-                                      <div
-                                        style={{
-                                          position: 'absolute',
-                                          top: '0',
-                                          left: '50%',
-                                          transform: 'translateX(-50%)',
-                                          height: (shift.totalHeight) + 'px',
-                                          pointerEvents: 'none',
-                                          zIndex: 50
-                                        }}
-                                      >
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {viewMode === 'm' ? (
+                    renderMonthView()
+                  ) : (
+                    <div className="bg-white rounded border border-gray-300 relative" style={{overflow: 'visible'}}>
+                      <div className="grid" style={{gridTemplateColumns: (viewMode === 'd' ? ('auto minmax(320px, 1fr)') : ('auto repeat(' + weekDays.length + ', 1fr)')), overflow: 'visible'}}>
+                        <div className="border-r border-b border-gray-300 bg-gray-50 p-2"></div>
+                        {weekDays.map((day, i) => (
+                          <div key={i} className="border-r border-b border-gray-300 bg-gray-50 p-2 text-center">
+                            <div className="text-sm font-medium">{day}</div>
+                          </div>
+                        ))}
+
+                        {timeSlots.map((slot, slotIndex) => (
+                          <React.Fragment key={slotIndex}>
+                            <div className="border-r border-b border-gray-300 bg-gray-50 px-2 text-xs text-gray-600 text-right flex items-center justify-end select-none pointer-events-none" style={{height: '20px'}}>
+                              {slot.label}
+                            </div>
+                            {weekDays.map((day, dayIndex) => {
+                              const key = dayIndex + '-' + slotIndex;
+                              const globalDayIndex = dayIndices[dayIndex];
+                              const cellState = availability[key];
+                              const cellColor = getCellColor(cellState);
+                              const shift = getShiftAtSlot(globalDayIndex, slotIndex);
+                              
+                              return (
+                                <div 
+                                  key={key}
+                                  className={("border-r border-b border-gray-300 " + cellColor)}
+                                  style={{
+                                    height: '20px',
+                                    cursor: editingAvailability && cellState !== 3 ? 'crosshair' : 'default',
+                                    position: 'relative'
+                                  }}
+                                  onMouseDown={() => handleCellMouseDown(dayIndex, slotIndex)}
+                                  onMouseEnter={() => handleCellMouseEnter(dayIndex, slotIndex)}
+                                >
+                                  {shift && (
+                                    <div 
+                                      className="rounded"
+                                      style={{
+                                        position: 'absolute',
+                                        top: shift.isFirst ? '0' : '-1px',
+                                        bottom: shift.isLast ? '0' : '-1px',
+                                        left: '4px',
+                                        right: '4px',
+                                        backgroundColor: roleColors[shift.role],
+                                        border: '2px solid ' + roleColors[shift.role],
+                                        borderTop: shift.isFirst ? ('2px solid ' + roleColors[shift.role]) : 'none',
+                                        borderBottom: shift.isLast ? ('2px solid ' + roleColors[shift.role]) : 'none',
+                                        borderRadius: shift.isFirst && shift.isLast ? '4px' : 
+                                                     shift.isFirst ? '4px 4px 0 0' : 
+                                                     shift.isLast ? '0 0 4px 4px' : '0',
+                                        zIndex: shift.isFirst ? 50 : 10
+                                      }}
+                                    >
+                                      {shift.status === 'assigned' && shift.isFirst && (
+                                        <div 
+                                          className="rounded"
+                                          style={{
+                                            position: 'absolute',
+                                            top: 0,
+                                            left: 0,
+                                            right: 0,
+                                            height: (shift.totalHeight) + 'px',
+                                            backgroundColor: 'rgba(255,255,255,0.5)',
+                                            borderRadius: 'inherit',
+                                            zIndex: 40
+                                          }}
+                                        />
+                                      )}
+                                      {shift.status === 'open' && shift.isFirst && (
+                                        <div
+                                          className="rounded"
+                                          style={{
+                                            position: 'absolute',
+                                            top: 0,
+                                            left: 0,
+                                            right: 0,
+                                            height: (shift.totalHeight) + 'px',
+                                            background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.6) 10px, transparent 10px, transparent 20px)',
+                                            borderRadius: 'inherit',
+                                            zIndex: 40
+                                          }}
+                                        />
+                                      )}
+                                      
+                                      {shift.isFirst && (
                                         <div
                                           style={{
                                             position: 'absolute',
-                                            top: '60px',
+                                            top: '0',
                                             left: '50%',
-                                            transform: 'translate(-50%, -50%) rotate(90deg)',
-                                            backgroundColor: 'rgba(0,0,0,0.5)',
-                                            padding: '4px 8px',
-                                            borderRadius: '4px',
-                                            color: 'white',
-                                            fontSize: '12px',
-                                            fontWeight: 'bold',
-                                            textAlign: 'center',
-                                            lineHeight: '1.2',
-                                            whiteSpace: 'nowrap'
+                                            transform: 'translateX(-50%)',
+                                            height: (shift.totalHeight) + 'px',
+                                            pointerEvents: 'none',
+                                            zIndex: 50
                                           }}
                                         >
-                                          <div>{formatTime(shift.startHour, shift.startMinute)} - {formatTime(shift.endHour, shift.endMinute)}</div>
-                                          <div>{shift.role.charAt(0).toUpperCase() + shift.role.slice(1)}</div>
-                                          <div>{shift.location}</div>
+                                          <div
+                                            style={{
+                                              position: 'absolute',
+                                              top: '60px',
+                                              left: '50%',
+                                              transform: 'translate(-50%, -50%) rotate(90deg)',
+                                              backgroundColor: 'rgba(0,0,0,0.5)',
+                                              padding: '4px 8px',
+                                              borderRadius: '4px',
+                                              color: 'white',
+                                              fontSize: '12px',
+                                              fontWeight: 'bold',
+                                              textAlign: 'center',
+                                              lineHeight: '1.2',
+                                              whiteSpace: 'nowrap'
+                                            }}
+                                          >
+                                            <div>{formatTime(shift.startHour, shift.startMinute)} - {formatTime(shift.endHour, shift.endMinute)}</div>
+                                            <div>{shift.role.charAt(0).toUpperCase() + shift.role.slice(1)}</div>
+                                            <div>{shift.location}</div>
+                                          </div>
                                         </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </React.Fragment>
-                      ))}
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </React.Fragment>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="mt-3 flex items-center gap-4 text-xs text-gray-600">
                     <div className="flex items-center gap-1">
@@ -746,25 +904,6 @@ router.get('/employee-scheduling', (req, res, next) => {
                         <div className="absolute inset-0 rounded" style={{background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.6) 10px, transparent 10px, transparent 20px)'}}></div>
                       </div>
                       <span>Open Shift</span>
-                    </div>
-                  </div>
-
-                  {/* Open Shift Samples */}
-                  <div className="mt-4">
-                    <div className="text-xs text-gray-600 mb-1">Open Shift Samples</div>
-                    <div className="flex gap-3">
-                      <div className="flex-1">
-                        <div className="text-xs text-gray-500 mb-1">Barista (Open)</div>
-                        <div className="h-10 rounded relative" style={{backgroundColor: roleColors.barista}}>
-                          <div className="absolute inset-0 rounded" style={{background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.6) 10px, transparent 10px, transparent 20px)'}}></div>
-                        </div>
-                      </div>
-                      <div className="flex-1">
-                        <div className="text-xs text-gray-500 mb-1">Barista (Open, Tall)</div>
-                        <div className="h-16 rounded relative" style={{backgroundColor: roleColors.barista}}>
-                          <div className="absolute inset-0 rounded" style={{background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.6) 10px, transparent 10px, transparent 20px)'}}></div>
-                        </div>
-                      </div>
                     </div>
                   </div>
                 </div>
