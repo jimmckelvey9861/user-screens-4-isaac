@@ -1124,6 +1124,27 @@ router.get('/employee-scheduling', (req, res, next) => {
                 }
               });
 
+              // Header chips
+              const identityChips = (employee.documents.identity || []).map((doc, idx) => {
+                const d = daysUntil(doc.expirationDate);
+                const cls = d < 0
+                  ? 'bg-red-100 text-red-700'
+                  : d <= 180
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-emerald-100 text-emerald-700';
+                return (
+                  <span key={'id-'+idx} className={"px-2 py-0.5 rounded-full text-xs font-medium " + cls}>{doc.type}</span>
+                );
+              });
+
+              const rolesHeaderChips = (employee.roles || []).map((r, idx) => (
+                <span key={'role-'+idx} className="px-2 py-0.5 rounded-full text-xs font-medium text-white" style={{backgroundColor: r.color}}>{r.subRoleName}</span>
+              ));
+
+              const locationHeaderChips = (employee.locations || []).map((l, idx) => (
+                <span key={'loc-'+idx} className="px-2 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-700">{l.name}</span>
+              ));
+
               const Section = ({ title, open, onToggle, children, subtitle, closedContent, inlineContent }) => (
                 <div className="bg-white rounded-lg border border-gray-200 shadow-sm mb-4">
                   <button onClick={onToggle} className="w-full flex items-start justify-between px-4 py-3">
@@ -1409,7 +1430,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                     </div>
                   </Section>
 
-                  <Section title="2. Identity & Compliance" open={expanded.identity} onToggle={() => toggle('identity')}>
+                  <Section title="2. Identity" open={expanded.identity} onToggle={() => toggle('identity')} inlineContent={identityChips}>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                       <div className="md:col-span-2">
                         <div className="font-medium mb-2">Government IDs</div>
@@ -1443,33 +1464,10 @@ router.get('/employee-scheduling', (req, res, next) => {
                           })}
                         </div>
                       </div>
-                      <div className="md:col-span-2">
-                        <div className="font-medium mb-2">Certifications / licenses</div>
-                        <div className="space-y-2">
-                          {employee.documents.certifications.map((c, idx) => {
-                            const days = daysUntil(c.expirationDate);
-                            const badgeClass = days < 0 ? 'bg-red-100 text-red-700' : days <= 30 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700';
-                            const badgeText = days < 0 ? 'Expired' : days <= 30 ? 'Expiring soon' : 'Valid';
-                            return (
-                              <div key={idx} className="flex items-center justify-between border rounded p-2">
-                                <div>
-                                  <div className="font-medium">{c.type}</div>
-                                  <div className="text-gray-600 text-xs">Issued: {formatDate(c.issuedDate)}</div>
-                                </div>
-                                <div className="text-right">
-                                  <div className="text-xs text-gray-500">Expires</div>
-                                  <div className="font-medium text-sm">{formatDate(c.expirationDate)}</div>
-                                  <div className={"inline-block mt-1 px-2 py-0.5 text-xs rounded " + badgeClass}>{badgeText}</div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
                     </div>
                   </Section>
 
-                  <Section title="4. Roles & Sub-roles" open={expanded.roles} onToggle={() => toggle('roles')}>
+                  <Section title="4. Roles & Sub-roles" open={expanded.roles} onToggle={() => toggle('roles')} inlineContent={rolesHeaderChips}>
                     <div className="space-y-3 text-sm">
                       {employee.roles.map((r, idx) => (
                         <div key={idx} className="flex items-center justify-between border rounded p-2">
@@ -1493,7 +1491,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                     </div>
                   </Section>
 
-                  <Section title="6. Work Locations" open={expanded.locations} onToggle={() => toggle('locations')}>
+                  <Section title="6. Locations" open={expanded.locations} onToggle={() => toggle('locations')} inlineContent={locationHeaderChips}>
                     <div className="space-y-3 text-sm">
                       <div className="flex items-center gap-2">
                         <input id="crossloc" type="checkbox" checked={employee.crossLocation} onChange={() => {}} />
