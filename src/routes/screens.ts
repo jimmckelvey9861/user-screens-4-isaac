@@ -219,6 +219,7 @@ router.get('/employee-scheduling', (req, res, next) => {
               const prevTimeSlotsRef = useRef(null);
               const [startOffsetDays, setStartOffsetDays] = useState(0);
               const monthLength = 31; // simple month length for demo; wraps after 31
+              const [modalShift, setModalShift] = useState(null);
               
               useEffect(() => {
                 brushRef.current = availabilityBrush;
@@ -333,12 +334,16 @@ router.get('/employee-scheduling', (req, res, next) => {
                 }
                 return result;
               };
-              const selectedDayIndex = 1; // Monday as the Day view target
+              const baseSelectedDayIndex = 1; // Monday as the initial Day view target
               const getDaysForView = () => {
                 if (viewMode === 'd') {
-                  const labels = getWeekDays(1, startOffsetDays);
-                  const baseMod7 = ((startOffsetDays % 7) + 7) % 7;
-                  return { labels: [labels[selectedDayIndex]], indices: [ (selectedDayIndex + baseMod7) % 7 ] };
+                  const offset = ((startOffsetDays % 7) + 7) % 7;
+                  // Rotate weekday name with offset
+                  const name = baseWeekDays[offset].split(' ')[0];
+                  // Compute number from Sun 21 base + total day offset
+                  const dayNum = (((21 + startOffsetDays) - 1) % monthLength) + 1;
+                  const label = name + ' ' + dayNum;
+                  return { labels: [label], indices: [offset] };
                 }
                 if (weeksToShow === 2) {
                   const labels = getWeekDays(2, startOffsetDays);
@@ -352,6 +357,23 @@ router.get('/employee-scheduling', (req, res, next) => {
               const daysForView = getDaysForView();
               const weekDays = daysForView.labels;
               const dayIndices = daysForView.indices;
+              const currentDayGlobalIndex = dayIndices && dayIndices.length === 1 ? dayIndices[0] : null;
+
+              const periodLabel = (() => {
+                if (viewMode === 'd') {
+                  return weekDays[0];
+                }
+                if (viewMode === 'm' || viewMode === 'month') {
+                  return 'Month';
+                }
+                // Week or 2-week: show date range from first to last label
+                if (weekDays.length > 0) {
+                  const first = weekDays[0];
+                  const last = weekDays[weekDays.length - 1];
+                  return first + ' – ' + last;
+                }
+                return 'Week';
+              })();
 
               // Month view renderer
               const renderMonthView = () => {
@@ -362,7 +384,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                 for (let i = 0; i < totalCells; i++) {
                   const dayNum = (((startNumber + i) - 1) % monthLength) + 1;
                   const dow = i % 7;
-                  const shiftsForDow = displayShifts.filter(s => s.dayIndex === dow);
+                  const shiftsForDow = displayShifts.filter(s => s.dayIndex === dow && (showOpenShifts || s.status !== 'open'));
                   const single = shiftsForDow.length === 1;
                   const chipHeight = single ? 40 : 26;
                   const chipsToShow = single ? shiftsForDow.slice(0, 1) : shiftsForDow.slice(0, 2);
@@ -390,6 +412,11 @@ router.get('/employee-scheduling', (req, res, next) => {
                                 <div className="absolute left-1 right-1 top-1 text-[10px] font-semibold text-white drop-shadow-sm truncate" style={{lineHeight: '1'}}>
                                   {shift.role.charAt(0).toUpperCase() + shift.role.slice(1)}
                                 </div>
+                                {(shift.status === 'open' || shift.status === 'assigned') && (
+                                  <button onClick={() => setModalShift(shift)} className="absolute px-2 py-0.5 text-[10px] bg-white/80 hover:bg-white text-gray-800 rounded shadow" style={{left: '50%', transform: 'translateX(-50%)', bottom: '4px'}}>
+                                    View
+                                  </button>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -408,17 +435,24 @@ router.get('/employee-scheduling', (req, res, next) => {
                   startHour = 0;
                   endHour = 24;
                 } else {
-                  // Consider the entire week's hours + 1 hour buffer
-                  // Find the earliest opening and latest closing times across all days
-                  let earliestOpen = 24;
-                  let latestClose = 0;
-                  for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-                    const dayHours = getStoreHours(dayIndex);
-                    earliestOpen = Math.min(earliestOpen, dayHours.open);
-                    latestClose = Math.max(latestClose, dayHours.close);
+                  // If Day view, use that day's hours to compute the visible range
+                  if (viewMode === 'd' && dayIndices && dayIndices.length === 1) {
+                    const dow = (dayIndices[0] % 7 + 7) % 7;
+                    const hours = getStoreHours(dow);
+                    startHour = hours.open - 1;
+                    endHour = hours.close + 1;
+                  } else {
+                    // Week / 2W: use min/max across the week so all days fit
+                    let earliestOpen = 24;
+                    let latestClose = 0;
+                    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+                      const dayHours = getStoreHours(dayIndex);
+                      earliestOpen = Math.min(earliestOpen, dayHours.open);
+                      latestClose = Math.max(latestClose, dayHours.close);
+                    }
+                    startHour = earliestOpen - 1; // 1 hour before earliest open
+                    endHour = latestClose + 1; // 1 hour after latest close
                   }
-                  startHour = earliestOpen - 1; // 1 hour before earliest open
-                  endHour = latestClose + 1; // 1 hour after latest close
                 }
                 for (let hour = startHour; hour < endHour; hour += 0.5) {
                   const hourInt = Math.floor(hour);
@@ -442,7 +476,7 @@ router.get('/employee-scheduling', (req, res, next) => {
               };
 
               const isOutsideStoreHours = (dayIndex, hour) => {
-                const storeHours = getStoreHours(dayIndex);
+                const storeHours = getStoreHours(dayIndex % 7);
                 // Show business hours + 1 hour buffer, mark buffer hours as closed
                 return hour < storeHours.open || hour >= storeHours.close;
               };
@@ -456,6 +490,14 @@ router.get('/employee-scheduling', (req, res, next) => {
                 setTimeSlots(generateTimeSlots());
               }, [is24HourView]);
 
+              // Regenerate slots when switching Day view day (so labels and banding align to the day's hours)
+              useEffect(() => {
+                if (viewMode === 'd') {
+                  prevTimeSlotsRef.current = timeSlots;
+                  setTimeSlots(generateTimeSlots());
+                }
+              }, [viewMode, JSON.stringify(dayIndices)]);
+
               const [availability, setAvailability] = useState(() => {
                 const initial = {};
                 const generateInitialAvailability = () => {
@@ -463,14 +505,15 @@ router.get('/employee-scheduling', (req, res, next) => {
                     const slots = generateTimeSlots();
                     slots.forEach((slot, slotIndex) => {
                       const key = dayIndex + '-' + slotIndex;
-                      if (isOutsideStoreHours(dayIndex, slot.hour)) {
+                      const globalDow = (dayIndices && dayIndices[dayIndex] !== undefined) ? (dayIndices[dayIndex] % 7) : (dayIndex % 7);
+                      if (isOutsideStoreHours(globalDow, slot.hour)) {
                         initial[key] = 3;
                       } else {
-                        if (dayIndex === 0 && slotIndex < 4) {
+                        if (globalDow === 0 && slotIndex < 4) {
                           initial[key] = 0;
-                        } else if (dayIndex === 1 && slotIndex < 6) {
+                        } else if (globalDow === 1 && slotIndex < 6) {
                           initial[key] = 0;
-                        } else if (dayIndex === 2 && slotIndex >= 10 && slotIndex < 14) {
+                        } else if (globalDow === 2 && slotIndex >= 10 && slotIndex < 14) {
                           initial[key] = 2;
                         } else {
                           initial[key] = 1;
@@ -485,6 +528,42 @@ router.get('/employee-scheduling', (req, res, next) => {
 
               // Rebuild availability defaults when the number of time slots or days changes
               useEffect(() => {
+                const prevSlots = prevTimeSlotsRef.current;
+                if (prevSlots && Array.isArray(prevSlots) && prevSlots.length > 0) {
+                  const prevStart = prevSlots[0].hour * 60 + (prevSlots[0].minute || 0);
+                  const newStart = timeSlots.length > 0 ? (timeSlots[0].hour * 60 + (timeSlots[0].minute || 0)) : 0;
+                  setAvailability(prev => {
+                    const next = {};
+                    // Map previous availability to new grid by minute-of-day
+                    for (let dayIndex = 0; dayIndex < weekDays.length; dayIndex++) {
+                      const globalDow = (dayIndices && dayIndices[dayIndex] !== undefined) ? (dayIndices[dayIndex] % 7) : (dayIndex % 7);
+                      for (let prevIdx = 0; prevIdx < prevSlots.length; prevIdx++) {
+                        const prevKey = dayIndex + '-' + prevIdx;
+                        const state = prev[prevKey];
+                        if (state === undefined) continue;
+                        const absMin = prevStart + prevIdx * 30;
+                        const newIdx = Math.floor((absMin - newStart) / 30);
+                        if (newIdx >= 0 && newIdx < timeSlots.length) {
+                          const newKey = dayIndex + '-' + newIdx;
+                          next[newKey] = state;
+                        }
+                      }
+                      // Fill any gaps using store-hours defaults
+                      for (let slotIndex = 0; slotIndex < timeSlots.length; slotIndex++) {
+                        const key = dayIndex + '-' + slotIndex;
+                        if (next[key] === undefined) {
+                          const slot = timeSlots[slotIndex];
+                          next[key] = isOutsideStoreHours(globalDow, slot.hour) ? 3 : 1;
+                        }
+                      }
+                    }
+                    return next;
+                  });
+                  // clear ref so subsequent changes rebuild normally
+                  prevTimeSlotsRef.current = null;
+                  return;
+                }
+
                 setAvailability(prev => {
                   const next = {};
                   for (let dayIndex = 0; dayIndex < weekDays.length; dayIndex++) {
@@ -492,12 +571,13 @@ router.get('/employee-scheduling', (req, res, next) => {
                       const slot = timeSlots[slotIndex];
                       const key = dayIndex + '-' + slotIndex;
                       const prevVal = prev[key];
-                      next[key] = (typeof prevVal === 'number') ? prevVal : (isOutsideStoreHours(dayIndex, slot.hour) ? 3 : 1);
+                      const globalDow = (dayIndices && dayIndices[dayIndex] !== undefined) ? (dayIndices[dayIndex] % 7) : (dayIndex % 7);
+                      next[key] = (typeof prevVal === 'number') ? prevVal : (isOutsideStoreHours(globalDow, slot.hour) ? 3 : 1);
                     }
                   }
                   return next;
                 });
-              }, [timeSlots, weekDays.length]);
+              }, [timeSlots, weekDays.length, JSON.stringify(dayIndices)]);
 
               const handleCellMouseDown = (dayIndex, slotIndex) => {
                 if (!editingAvailability) return;
@@ -633,17 +713,20 @@ router.get('/employee-scheduling', (req, res, next) => {
                     </div>
 
                     <div className="flex items-center gap-3">
+                      <button className="px-3 py-1 text-sm hover:bg-gray-100 rounded border" onClick={() => setStartOffsetDays(0)}>
+                        Now
+                      </button>
                       <div className="flex items-center gap-2">
-                        <button className="p-1 hover:bg-gray-100 rounded" onClick={() => {
+                        <button className="p-1 hover:bg-gray-100 rounded" title="Previous" onClick={() => {
                           const step = (viewMode === '2w') ? 14 : ((viewMode === 'm' || viewMode === 'month') ? monthLength : ((viewMode === 'w' || viewMode === 'week') ? 7 : 1));
                           setStartOffsetDays(prev => prev - step);
                         }}>
                           <ChevronDown className="w-4 h-4 rotate-90" />
                         </button>
-                        <button className="px-3 py-1 text-sm hover:bg-gray-100 rounded" onClick={() => setStartOffsetDays(0)}>
-                          Now
-                        </button>
-                        <button className="p-1 hover:bg-gray-100 rounded" onClick={() => {
+                        <div className="px-3 py-1 text-sm text-gray-700">
+                          {periodLabel}
+                        </div>
+                        <button className="p-1 hover:bg-gray-100 rounded" title="Next" onClick={() => {
                           const step = (viewMode === '2w') ? 14 : ((viewMode === 'm' || viewMode === 'month') ? monthLength : ((viewMode === 'w' || viewMode === 'week') ? 7 : 1));
                           setStartOffsetDays(prev => prev + step);
                         }}>
@@ -724,7 +807,8 @@ router.get('/employee-scheduling', (req, res, next) => {
                     <div className="bg-white rounded border border-gray-300 px-4 py-2 mb-3 flex items-center gap-4">
                       <div className="text-sm font-medium text-gray-800">Day: {weekDays[0]}</div>
                       {(() => {
-                        const ds = displayShifts.filter(s => s.dayIndex === selectedDayIndex);
+                        const dayFilter = (currentDayGlobalIndex !== null ? currentDayGlobalIndex : undefined);
+                        const ds = displayShifts.filter(s => (dayFilter === undefined) ? true : (s.dayIndex === dayFilter));
                         const accepted = ds.filter(s => s.status === 'accepted').length;
                         const assigned = ds.filter(s => s.status === 'assigned').length;
                         const open = ds.filter(s => s.status === 'open').length;
@@ -758,8 +842,11 @@ router.get('/employee-scheduling', (req, res, next) => {
                               const key = dayIndex + '-' + slotIndex;
                               const globalDayIndex = dayIndices[dayIndex];
                               const cellState = availability[key];
-                              const cellColor = getCellColor(cellState);
+                              const outside = isOutsideStoreHours((globalDayIndex % 7 + 7) % 7, timeSlots[slotIndex].hour);
+                              const finalState = outside ? 3 : (cellState === 3 ? 1 : cellState);
+                              const cellColor = getCellColor(finalState);
                               const shift = getShiftAtSlot(globalDayIndex, slotIndex);
+                              const hideOpen = shift && (shift.status === 'open') && !showOpenShifts;
                               
                               return (
                                 <div 
@@ -767,21 +854,21 @@ router.get('/employee-scheduling', (req, res, next) => {
                                   className={("border-r border-b border-gray-300 " + cellColor)}
                                   style={{
                                     height: '20px',
-                                    cursor: editingAvailability && cellState !== 3 ? 'crosshair' : 'default',
+                                    cursor: editingAvailability && finalState !== 3 ? 'crosshair' : 'default',
                                     position: 'relative'
                                   }}
                                   onMouseDown={() => handleCellMouseDown(dayIndex, slotIndex)}
                                   onMouseEnter={() => handleCellMouseEnter(dayIndex, slotIndex)}
                                 >
-                                  {shift && (
+                                  {shift && !hideOpen && (
                                     <div 
                                       className="rounded"
                                       style={{
                                         position: 'absolute',
                                         top: shift.isFirst ? '0' : '-1px',
                                         bottom: shift.isLast ? '0' : '-1px',
-                                        left: '4px',
-                                        right: '4px',
+                                        left: '12px',
+                                        width: '50%',
                                         backgroundColor: roleColors[shift.role],
                                         border: '2px solid ' + roleColors[shift.role],
                                         borderTop: shift.isFirst ? ('2px solid ' + roleColors[shift.role]) : 'none',
@@ -858,6 +945,12 @@ router.get('/employee-scheduling', (req, res, next) => {
                                           </div>
                                         </div>
                                       )}
+
+                                      {(shift.status === 'open' || shift.status === 'assigned') && shift.isFirst && (
+                                        <button onClick={() => setModalShift(shift)} className="absolute px-2 py-1 text-xs bg-white/90 hover:bg-white text-gray-800 rounded shadow" style={{zIndex: 60, top: '120px', left: '50%', transform: 'translateX(-50%)'}}>
+                                          View
+                                        </button>
+                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -869,6 +962,24 @@ router.get('/employee-scheduling', (req, res, next) => {
                     </div>
                   )}
 
+                  {modalShift && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center" style={{zIndex: 1000}} onClick={() => setModalShift(null)}>
+                      <div className="bg-white rounded shadow-xl max-w-md w-full p-4" style={{zIndex: 1001}} onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="font-semibold">Shift details</div>
+                          <button className="px-2 py-1 text-sm rounded bg-gray-100 hover:bg-gray-200" onClick={() => setModalShift(null)}>Close</button>
+                        </div>
+                        <div className="text-sm text-gray-700 mb-2">Window, similar to schedule view</div>
+                        <div className="text-sm">
+                          <div><strong>When:</strong> {formatTime(modalShift.startHour, modalShift.startMinute)} - {formatTime(modalShift.endHour, modalShift.endMinute)}</div>
+                          <div><strong>Role:</strong> {modalShift.role.charAt(0).toUpperCase() + modalShift.role.slice(1)}</div>
+                          <div><strong>Location:</strong> {modalShift.location}</div>
+                          <div><strong>Status:</strong> {modalShift.status}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
                   <div className="mt-3 flex items-center gap-4 text-xs text-gray-600">
                     <div className="flex items-center gap-1">
                       <div className="w-4 h-4 bg-gray-400 border border-gray-500 rounded"></div>
@@ -920,15 +1031,546 @@ router.get('/employee-scheduling', (req, res, next) => {
               </div>
             );
 
-            const ProfileTab = () => (
-              <div className="p-6">
-                <div className="bg-gray-100 rounded-lg p-12 text-center text-gray-500">
-                  <User className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-                  <p className="text-lg font-medium">Profile Tab</p>
-                  <p className="text-sm">To be implemented</p>
+            const ProfileTab = () => {
+              const [expanded, setExpanded] = useState({
+                personal: true,
+                identity: true,
+                employment: true,
+                roles: true,
+                locations: true,
+                scheduling: true,
+                history: true,
+                documents: true,
+                skills: true
+              });
+
+              const toggle = (key) => setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
+
+              const daysUntil = (dateStr) => {
+                const now = new Date();
+                const d = new Date(dateStr);
+                return Math.ceil((d - now) / (1000 * 60 * 60 * 24));
+              };
+
+              const formatDate = (dateStr) => {
+                if (!dateStr) return '-';
+                const d = new Date(dateStr);
+                return d.toLocaleDateString();
+              };
+
+              const employee = {
+                id: 'EMP-1234',
+                firstName: 'Sarah',
+                middleName: 'A.',
+                lastName: 'Johnson',
+                preferredName: 'SJ',
+                dob: '1995-04-12',
+                contact: { phone: ['(555) 123-4567'], email: ['sarah.johnson@example.com'] },
+                address: { line1: '123 Main St', line2: 'Apt 4B', city: 'Springfield', state: 'CA', postalCode: '94000', country: 'USA' },
+                emergencyContacts: [
+                  { name: 'Michael Johnson', relation: 'Father', phone: '(555) 987-6543', email: 'michael.j@example.com' }
+                ],
+                employment: { hireDate: '2022-06-15', rehireDate: null, terminationDate: null, status: 'Active' },
+                pay: { type: 'Hourly', baseRate: 22.5, overtimeRate: 33.75, payrollId: 'PY-7788' },
+                roles: [
+                  { roleId: 'manager', subRoleId: 'shift-lead', effectiveDate: '2024-08-01', roleName: 'Manager', subRoleName: 'Shift Lead', color: '#f97316' },
+                  { roleId: 'barista', subRoleId: 'senior', effectiveDate: '2023-01-01', roleName: 'Barista', subRoleName: 'Senior', color: '#3b82f6' }
+                ],
+                locations: [
+                  { name: 'Downtown', primary: true, preferred: true, distanceMiles: 4.2 },
+                  { name: 'Uptown', primary: false, preferred: false, distanceMiles: 8.7 }
+                ],
+                crossLocation: true,
+                availability: {
+                  desiredHoursPerWeek: 36,
+                  weekly: {
+                    Mon: [{ start: '09:00', end: '17:00' }],
+                    Tue: [{ start: '09:00', end: '17:00' }],
+                    Wed: [{ start: '12:00', end: '20:00' }],
+                    Thu: [{ start: '09:00', end: '17:00' }],
+                    Fri: [{ start: '09:00', end: '17:00' }],
+                    Sat: [{ start: '10:00', end: '16:00' }],
+                    Sun: []
+                  },
+                  preferredShifts: ['Morning', 'Evening'],
+                  overtimeConsent: false,
+                  shiftBidPreference: 'Maximize hours'
+                },
+                documents: {
+                  identity: [
+                    { type: "Driver's License", number: 'D1234567', expirationDate: new Date(new Date().setDate(new Date().getDate() + 20)).toISOString().slice(0,10), issuingAuthority: 'CA DMV' },
+                    { type: 'Passport', number: 'P123456789', expirationDate: '2030-05-01', issuingAuthority: 'USA' }
+                  ],
+                  certifications: [
+                    { type: 'Food Handler', issuedDate: '2024-02-01', expirationDate: '2027-02-01', documentFile: null },
+                    { type: 'Alcohol Permit', issuedDate: '2023-03-10', expirationDate: new Date(new Date().setDate(new Date().getDate() - 5)).toISOString().slice(0,10), documentFile: null }
+                  ]
+                },
+                analytics: { punctualityScore: 92, retentionFlag: true, performanceRating: 4.6 },
+                notes: { managerNotes: ['Shows initiative during peak hours.'], employeeNotes: ['Prefers morning shifts on weekdays.'] }
+              };
+
+              const expiringSoon = [];
+              employee.documents.identity.forEach((doc) => {
+                const days = daysUntil(doc.expirationDate);
+                if (days <= 30) {
+                  expiringSoon.push({ label: doc.type + ' expires in ' + days + ' day(s)', severity: days < 0 ? 'error' : 'warn' });
+                }
+              });
+              employee.documents.certifications.forEach((doc) => {
+                const days = daysUntil(doc.expirationDate);
+                if (days <= 30) {
+                  expiringSoon.push({ label: doc.type + ' expires in ' + days + ' day(s)', severity: days < 0 ? 'error' : 'warn' });
+                }
+              });
+
+              const Section = ({ title, open, onToggle, children, subtitle, closedContent, inlineContent }) => (
+                <div className="bg-white rounded-lg border border-gray-200 shadow-sm mb-4">
+                  <button onClick={onToggle} className="w-full flex items-start justify-between px-4 py-3">
+                    <div className="flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="font-medium text-gray-900">{title}</div>
+                        {inlineContent ? <div className="flex flex-wrap items-center gap-2">{inlineContent}</div> : null}
+                      </div>
+                      {subtitle && <div className="text-xs text-gray-500 mt-0.5">{subtitle}</div>}
+                    </div>
+                    <ChevronDown className={"w-4 h-4 text-gray-500 transition-transform " + (open ? 'transform rotate-180' : '')} />
+                  </button>
+                  {open ? <div className="px-4 pb-4">{children}</div> : (closedContent ? <div className="px-4 pb-4">{closedContent}</div> : null)}
                 </div>
-              </div>
-            );
+              );
+
+              const QuickButton = ({ children, onClick }) => (
+                <button onClick={onClick} className="px-3 py-1.5 text-sm bg-white border border-gray-200 rounded shadow-sm hover:bg-gray-50">
+                  {children}
+                </button>
+              );
+
+              const AvailabilityPreview = () => {
+                const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+                const widthPerDay = 100 / days.length + '%';
+                const toMinutes = (t) => {
+                  const [h,m] = t.split(':');
+                  return parseInt(h,10)*60 + parseInt(m,10);
+                };
+                return (
+                  <div>
+                    <div className="mb-2 text-sm text-gray-600">Weekly template (preview)</div>
+                    <div className="flex border border-gray-200 rounded overflow-hidden">
+                      {days.map((d) => {
+                        const blocks = (employee.availability.weekly[d] || []);
+                        return (
+                          <div key={d} className="relative h-12 border-r last:border-r-0 border-gray-200" style={{width: widthPerDay}}>
+                            <div className="absolute inset-x-0 top-0 text-xs text-gray-500 text-center">{d}</div>
+                            {blocks.map((b, idx) => {
+                              const start = toMinutes(b.start);
+                              const end = toMinutes(b.end);
+                              const top = (start / (24*60)) * 100;
+                              const height = ((end - start) / (24*60)) * 100;
+                              return (
+                                <div key={idx} className="absolute left-1 right-1 rounded bg-emerald-500/20 border border-emerald-500" style={{ top: top + '%', height: height + '%' }}></div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              };
+
+              // Simple Skills components (no external deps)
+              const SkillManagementModal = ({ isOpen, onClose, skills, onSkillsChange, maxSkillLength = 25 }) => {
+                const [newSkill, setNewSkill] = useState("");
+
+                if (!isOpen) return null;
+
+                const handleAdd = () => {
+                  const trimmed = newSkill.trim();
+                  if (!trimmed) return;
+                  if (trimmed.length > maxSkillLength) return;
+                  if ((skills || []).includes(trimmed)) return;
+                  const updated = [...(skills || []), trimmed].sort();
+                  onSkillsChange(updated);
+                  setNewSkill("");
+                };
+
+                const handleDelete = (skill) => {
+                  onSkillsChange((skills || []).filter((s) => s !== skill));
+                };
+
+                return (
+                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center" style={{zIndex: 1000}} onClick={onClose}>
+                    <div className="bg-white rounded shadow-xl w-full max-w-md p-4 max-h-[80vh] overflow-auto" style={{zIndex: 1001}} onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="font-semibold">Manage Skills</div>
+                        <button className="px-2 py-1 text-sm rounded border" onClick={onClose}>Close</button>
+                      </div>
+                      <div className="space-y-2 mb-3">
+                        <label className="text-sm" htmlFor="new-skill">Add New Skill</label>
+                        <div className="flex gap-2">
+                          <input id="new-skill" className="flex-1 border rounded px-2 py-1" value={newSkill} onChange={(e) => setNewSkill(e.target.value)} maxLength={maxSkillLength} placeholder="Enter skill name" />
+                          <button className="px-2 py-1 rounded border" onClick={handleAdd} disabled={!newSkill.trim()}>Add</button>
+                        </div>
+                        <div className="text-xs text-gray-500">{newSkill.length}/{maxSkillLength} characters</div>
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium mb-1">Current Skills ({(skills || []).length})</div>
+                        <div className="border rounded p-2 max-h-64 overflow-auto">
+                          {(skills || []).length === 0 ? (
+                            <div className="text-center text-gray-500 py-6">No skills added yet</div>
+                          ) : (
+                            <div className="space-y-1">
+                              {(skills || []).map((skill) => (
+                                <div key={skill} className="flex items-center justify-between p-2 rounded hover:bg-gray-50">
+                                  <span className="text-sm" title={skill}>{skill}</span>
+                                  <button className="px-2 py-1 text-xs rounded border" onClick={() => handleDelete(skill)}>Delete</button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              };
+
+              const SkillSelector = ({ skills, selectedSkills, onSelectionChange = () => {}, onSkillsChange = () => {}, allowManagement = true }) => {
+                const [localSkills, setLocalSkills] = useState(skills || []);
+                const [localSelected, setLocalSelected] = useState(selectedSkills || []);
+                const [open, setOpen] = useState(false);
+
+                useEffect(() => { setLocalSkills(skills || []); }, [skills]);
+                useEffect(() => { setLocalSelected(selectedSkills || []); }, [selectedSkills]);
+
+                const total = (localSkills || []).length;
+                const selectedCount = (localSelected || []).length;
+                const allSelected = total > 0 && selectedCount === total;
+
+                const toggleSkill = (skill) => {
+                  const current = localSelected || [];
+                  const next = current.includes(skill) ? current.filter((s) => s !== skill) : current.concat([skill]);
+                  setLocalSelected(next);
+                  onSelectionChange(next);
+                };
+
+                const toggleAll = () => {
+                  const next = allSelected ? [] : [...(localSkills || [])];
+                  setLocalSelected(next);
+                  onSelectionChange(next);
+                };
+
+                const handleSkillsUpdate = (updated) => {
+                  setLocalSkills(updated);
+                  onSkillsChange(updated);
+                  // also trim selected if needed
+                  const filtered = (localSelected || []).filter((s) => updated.includes(s));
+                  if (filtered.length !== (localSelected || []).length) {
+                    setLocalSelected(filtered);
+                    onSelectionChange(filtered);
+                  }
+                };
+
+                return (
+                  <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                    <div className="max-h-[400px] overflow-y-auto">
+                      <table className="w-full border-collapse">
+                        <thead className="bg-gray-50 sticky top-0 z-10">
+                          <tr>
+                            <th className="w-12 p-2 text-center border-b border-gray-200">
+                              <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+                            </th>
+                            <th className="text-left p-2 font-semibold text-sm text-gray-700 border-b border-gray-200">Skill</th>
+                            <th className="w-32 p-2 text-center border-b border-gray-200">
+                              {allowManagement ? (
+                                <button onClick={() => setOpen(true)} className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 text-xs font-medium rounded">Manage Skills</button>
+                              ) : null}
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(localSkills || []).map((skill) => {
+                            const isSelected = (localSelected || []).includes(skill);
+                            return (
+                              <tr key={skill} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer" onClick={() => toggleSkill(skill)}>
+                                <td className="p-2 text-center">
+                                  <input type="checkbox" checked={isSelected} onChange={() => toggleSkill(skill)} onClick={(e) => e.stopPropagation()} />
+                                </td>
+                                <td className="p-2 text-sm text-gray-700">{skill}</td>
+                                <td className="p-2"></td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {allowManagement ? (
+                      <SkillManagementModal isOpen={open} onClose={() => setOpen(false)} skills={localSkills || []} onSkillsChange={handleSkillsUpdate} />
+                    ) : null}
+                  </div>
+                );
+              };
+
+              // Skills state at tab level so we can show chips when the section is closed
+              const [skillsList, setSkillsList] = useState(["Barista", "Cash Handling", "Milk Steaming", "Latte Art", "POS Operations", "Shift Lead", "Inventory", "Customer Service"]);
+              const [selectedSkills, setSelectedSkills] = useState(["Customer Service", "Barista"]);
+
+              const SkillsChips = ({ selected, onRemove }) => (
+                <div className="flex flex-wrap gap-2">
+                  {(selected || []).length === 0 ? (
+                    <span className="text-sm text-gray-500">No skills selected</span>
+                  ) : (
+                    (selected || []).map((s) => (
+                      <span key={s} className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-white text-xs" style={{backgroundColor: '#4f46e5'}}>
+                        <span>{s}</span>
+                        <button className="w-4 h-4 leading-none text-white/90 hover:text-white" onClick={(e) => { e.stopPropagation(); onRemove(s); }}>×</button>
+                      </span>
+                    ))
+                  )}
+                </div>
+              );
+
+              return (
+                <div className="p-4 md:p-6">
+                  <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-gray-200 -mx-4 md:-mx-6 px-4 md:px-6 py-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                          <User className="w-7 h-7 text-white" />
+                        </div>
+                        <div>
+                          <div className="text-lg font-semibold text-gray-900">{employee.firstName} {employee.middleName} {employee.lastName} <span className="text-gray-500 font-normal">({employee.preferredName})</span></div>
+                          <div className="text-sm text-gray-600">{employee.id}</div>
+                          <div className="flex gap-2 mt-1">
+                            <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full font-medium">{employee.employment.status}</span>
+                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">{employee.pay.type}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <QuickButton onClick={() => alert('Edit profile')}>Edit</QuickButton>
+                        <QuickButton onClick={() => alert('Archived')}>Archive</QuickButton>
+                        <QuickButton onClick={() => alert('Password reset link sent')}>Reset Password</QuickButton>
+                        <QuickButton onClick={() => alert('Open message composer')}>Message</QuickButton>
+                      </div>
+                    </div>
+                  </div>
+
+                  {expiringSoon.length > 0 && (
+                    <div className="mt-4 mb-2 p-3 rounded border text-sm" style={{backgroundColor: '#FFF7ED', borderColor: '#FDBA74', color: '#9A3412'}}>
+                      <div className="font-semibold mb-1">CAS Messages</div>
+                      <ul className="list-disc ml-5">
+                        {expiringSoon.map((a, i) => (
+                          <li key={i}>{a.label}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <Section title="1. Personal Information" open={expanded.personal} onToggle={() => toggle('personal')}>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                      <div className="md:row-span-2">
+                        <div className="text-gray-500 mb-1">Photograph</div>
+                        <div className="w-40 h-40 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center border">
+                          <img src="https://i.pravatar.cc/200?img=12" alt="Profile" className="w-full h-full object-cover" />
+                        </div>
+                        <div className="flex gap-2 mt-2">
+                          <button className="px-2 py-1 text-sm border rounded" onClick={() => alert('Upload new photo')}>Upload</button>
+                          <button className="px-2 py-1 text-sm border rounded" onClick={() => alert('Change photo')}>Change</button>
+                          <button className="px-2 py-1 text-sm border rounded" onClick={() => alert('Remove photo')}>Remove</button>
+                        </div>
+                      </div>
+                      <div className="md:col-span-2">
+                        <div className="text-gray-500">Full name</div>
+                        <div className="font-medium">{employee.firstName} {employee.middleName} {employee.lastName}</div>
+                      </div>
+                      <div className="md:col-span-2">
+                        <div className="text-gray-500">Preferred name</div>
+                        <div className="font-medium">{employee.preferredName}</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">Date of birth</div>
+                        <div className="font-medium">{formatDate(employee.dob)}</div>
+                      </div>
+                      <div className="md:col-span-2">
+                        <div className="text-gray-500">Contact</div>
+                        <div className="font-medium">{employee.contact.phone.join(', ')} • {employee.contact.email.join(', ')}</div>
+                      </div>
+                      <div className="md:col-span-2">
+                        <div className="text-gray-500">Address</div>
+                        <div className="font-medium">{employee.address.line1}{employee.address.line2 ? ', ' + employee.address.line2 : ''}, {employee.address.city}, {employee.address.state} {employee.address.postalCode}, {employee.address.country}</div>
+                      </div>
+                      <div className="md:col-span-2">
+                        <div className="text-gray-500">Emergency contact</div>
+                        <div className="font-medium">{employee.emergencyContacts[0].name} ({employee.emergencyContacts[0].relation}) — {employee.emergencyContacts[0].phone}</div>
+                      </div>
+                    </div>
+                  </Section>
+
+                  <Section title="2. Identity & Compliance" open={expanded.identity} onToggle={() => toggle('identity')}>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                      <div className="md:col-span-2">
+                        <div className="font-medium mb-2">Government IDs</div>
+                        <div className="space-y-2">
+                          {employee.documents.identity.map((doc, idx) => {
+                            const days = daysUntil(doc.expirationDate);
+                            const badgeClass = days < 0 ? 'bg-red-100 text-red-700' : days <= 30 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700';
+                            const badgeText = days < 0 ? 'Expired' : days <= 30 ? 'Expiring soon' : 'Valid';
+                            return (
+                              <div key={idx} className="flex items-start justify-between border rounded p-2 gap-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-16 h-10 bg-gray-100 border rounded overflow-hidden flex items-center justify-center">
+                                    <span className="text-[10px] text-gray-500">ID Image</span>
+                                  </div>
+                                  <div>
+                                    <div className="font-medium">{doc.type}</div>
+                                    <div className="text-gray-600 text-xs">No. {doc.number} • Issuer: {doc.issuingAuthority}</div>
+                                    <div className="flex gap-2 mt-1">
+                                      <button className="text-xs px-2 py-1 rounded border" onClick={() => alert('Upload photo of ID')}>Upload photo</button>
+                                      <button className="text-xs px-2 py-1 rounded border" onClick={() => alert('Start video verification')}>Video verify</button>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-xs text-gray-500">Expires</div>
+                                  <div className="font-medium text-sm">{formatDate(doc.expirationDate)}</div>
+                                  <div className={"inline-block mt-1 px-2 py-0.5 text-xs rounded " + badgeClass}>{badgeText}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="md:col-span-2">
+                        <div className="font-medium mb-2">Certifications / licenses</div>
+                        <div className="space-y-2">
+                          {employee.documents.certifications.map((c, idx) => {
+                            const days = daysUntil(c.expirationDate);
+                            const badgeClass = days < 0 ? 'bg-red-100 text-red-700' : days <= 30 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700';
+                            const badgeText = days < 0 ? 'Expired' : days <= 30 ? 'Expiring soon' : 'Valid';
+                            return (
+                              <div key={idx} className="flex items-center justify-between border rounded p-2">
+                                <div>
+                                  <div className="font-medium">{c.type}</div>
+                                  <div className="text-gray-600 text-xs">Issued: {formatDate(c.issuedDate)}</div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-xs text-gray-500">Expires</div>
+                                  <div className="font-medium text-sm">{formatDate(c.expirationDate)}</div>
+                                  <div className={"inline-block mt-1 px-2 py-0.5 text-xs rounded " + badgeClass}>{badgeText}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </Section>
+
+                  <Section title="4. Roles & Sub-roles" open={expanded.roles} onToggle={() => toggle('roles')}>
+                    <div className="space-y-3 text-sm">
+                      {employee.roles.map((r, idx) => (
+                        <div key={idx} className="flex items-center justify-between border rounded p-2">
+                          <div className="flex items-center gap-3">
+                            <span className="w-3 h-3 rounded-full" style={{backgroundColor: r.color}}></span>
+                            <div>
+                              <div className="font-medium">{r.roleName} <span className="text-gray-500">→ {r.subRoleName}</span></div>
+                              <div className="text-xs text-gray-600">Effective {formatDate(r.effectiveDate)}</div>
+                            </div>
+                          </div>
+                          <button className="text-xs px-2 py-1 rounded border">Change</button>
+                        </div>
+                      ))}
+                      <button className="px-3 py-1.5 text-sm bg-white border border-gray-200 rounded shadow-sm hover:bg-gray-50">Add role</button>
+                    </div>
+                  </Section>
+
+                  <Section title="5. Skills" open={expanded.skills} onToggle={() => toggle('skills')} inlineContent={<SkillsChips selected={selectedSkills} onRemove={(s) => setSelectedSkills((selectedSkills || []).filter((x) => x !== s))} />}>
+                    <div className="space-y-3">
+                      <SkillSelector skills={skillsList} selectedSkills={selectedSkills} onSelectionChange={setSelectedSkills} onSkillsChange={setSkillsList} allowManagement={true} />
+                    </div>
+                  </Section>
+
+                  <Section title="6. Work Locations" open={expanded.locations} onToggle={() => toggle('locations')}>
+                    <div className="space-y-3 text-sm">
+                      <div className="flex items-center gap-2">
+                        <input id="crossloc" type="checkbox" checked={employee.crossLocation} onChange={() => {}} />
+                        <label htmlFor="crossloc" className="text-gray-700">Allow cross-location scheduling</label>
+                      </div>
+                      {employee.locations.map((l, idx) => (
+                        <div key={idx} className="flex items-center justify-between border rounded p-2">
+                          <div>
+                            <div className="font-medium">{l.name} {l.primary ? <span className="ml-2 px-2 py-0.5 text-xs rounded bg-blue-100 text-blue-700">Primary</span> : null} {l.preferred ? <span className="ml-2 px-2 py-0.5 text-xs rounded bg-emerald-100 text-emerald-700">Preferred</span> : null}</div>
+                            <div className="text-xs text-gray-600">{l.distanceMiles} mi from home</div>
+                          </div>
+                          <button className="text-xs px-2 py-1 rounded border">Set preferred</button>
+                        </div>
+                      ))}
+                    </div>
+                  </Section>
+
+                  <Section title="7. Scheduling Preferences" open={expanded.scheduling} onToggle={() => toggle('scheduling')}>
+                    <div className="space-y-4 text-sm">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <div className="text-gray-500">Desired hours / week</div>
+                          <div className="font-medium">{employee.availability.desiredHoursPerWeek} hrs</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-500">Preferred shifts</div>
+                          <div className="font-medium">{employee.availability.preferredShifts.join(', ')}</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-500">Overtime consent</div>
+                          <div className="font-medium">{employee.availability.overtimeConsent ? 'Yes' : 'No'}</div>
+                        </div>
+                      </div>
+                      <AvailabilityPreview />
+                    </div>
+                  </Section>
+
+                  <Section title="8. History & Analytics" open={expanded.history} onToggle={() => toggle('history')}>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                      <div className="border rounded p-3">
+                        <div className="text-gray-500">Punctuality</div>
+                        <div className="text-2xl font-semibold">{employee.analytics.punctualityScore}%</div>
+                      </div>
+                      <div className="border rounded p-3">
+                        <div className="text-gray-500">Performance rating</div>
+                        <div className="text-2xl font-semibold">{employee.analytics.performanceRating}</div>
+                      </div>
+                      <div className="border rounded p-3">
+                        <div className="text-gray-500">90-day retention</div>
+                        <div>
+                          {employee.analytics.retentionFlag ? <span className="px-2 py-0.5 text-xs rounded bg-emerald-100 text-emerald-700">On track</span> : <span className="px-2 py-0.5 text-xs rounded bg-amber-100 text-amber-700">At risk</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </Section>
+
+                  <Section title="9. Documents & Notes" open={expanded.documents} onToggle={() => toggle('documents')}>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                      <div className="border rounded p-4">
+                        <div className="font-medium mb-2">Upload documents</div>
+                        <div className="border-2 border-dashed rounded p-6 text-center text-gray-500">Drop files here or <button className="underline" onClick={() => alert('Open file picker')}>browse</button></div>
+                      </div>
+                      <div className="space-y-4">
+                        <div>
+                          <div className="font-medium mb-1">Manager notes</div>
+                          <textarea className="w-full border rounded p-2" rows="3" defaultValue={(employee.notes.managerNotes || []).join(String.fromCharCode(10))}></textarea>
+                        </div>
+                        <div>
+                          <div className="font-medium mb-1">Employee notes</div>
+                          <textarea className="w-full border rounded p-2" rows="3" defaultValue={(employee.notes.employeeNotes || []).join(String.fromCharCode(10))}></textarea>
+                        </div>
+                      </div>
+                    </div>
+                  </Section>
+                </div>
+              );
+            };
 
             // Use ReactDOM.render for compatibility
             ReactDOM.render(<EmployeeManagementUI />, document.getElementById('root'));
