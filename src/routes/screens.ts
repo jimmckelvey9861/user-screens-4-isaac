@@ -136,6 +136,15 @@ router.get('/employee-scheduling', (req, res, next) => {
                 <polyline points="6,9 12,15 18,9"/>
               </svg>
             );
+            
+            const InfinityIcon = ({ className, ...props }) => (
+              <svg className={className} {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18.5 9.5c-1.657 0-3.5 1.5-6.5 3.5 3 2 4.843 3.5 6.5 3.5 2.485 0 4.5-2.015 4.5-4.5s-2.015-4.5-4.5-4.5zM5.5 9.5c1.657 0 3.5 1.5 6.5 3.5-3 2-4.843 3.5-6.5 3.5C3.015 16.5 1 14.485 1 12s2.015-4.5 4.5-4.5z" />
+              </svg>
+            );
+            
+            // Global scheduling template saved from Profile > Scheduling Preferences
+            let savedAvailabilityTemplate = null; // { [dow:0..6]: number[48] }
 
             const EmployeeManagementUI = () => {
               const [activeTab, setActiveTab] = useState('schedule');
@@ -218,6 +227,12 @@ router.get('/employee-scheduling', (req, res, next) => {
               const brushRef = useRef(availabilityBrush);
               const prevTimeSlotsRef = useRef(null);
               const [startOffsetDays, setStartOffsetDays] = useState(0);
+              // Base date drives all calendar views (today by default)
+              const [baseDate, setBaseDate] = useState(() => {
+                const d = new Date();
+                d.setHours(0,0,0,0);
+                return d;
+              });
               const monthLength = 31; // simple month length for demo; wraps after 31
               const [modalShift, setModalShift] = useState(null);
               
@@ -241,7 +256,8 @@ router.get('/employee-scheduling', (req, res, next) => {
                   endMinute: 0,
                   role: 'barista',
                   location: 'Main Store',
-                  status: 'accepted'
+                    status: 'accepted',
+                    workerName: 'Sarah Johnson'
                 },
                 {
                   id: 2,
@@ -297,7 +313,8 @@ router.get('/employee-scheduling', (req, res, next) => {
                   endMinute: 0,
                   role: 'manager',
                   location: 'Branch',
-                  status: 'accepted'
+                    status: 'accepted',
+                    workerName: 'Miguel Santos'
                 }
               ];
 
@@ -319,40 +336,52 @@ router.get('/employee-scheduling', (req, res, next) => {
                 };
               };
 
-              const baseWeekDays = ['Sun 21', 'Mon 22', 'Tue 23', 'Wed 24', 'Thu 25', 'Fri 26', 'Sat 27'];
-              const getWeekDays = (weeks, offsetDays) => {
+              // Canonical calendar model based on baseDate
+              const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+              const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+              const calendarYear = baseDate.getFullYear();
+              const calendarMonth = baseDate.getMonth();
+              const firstOfMonth = new Date(calendarYear, calendarMonth, 1);
+              const baseWeekDays = Array.from({length: 7}, (_, i) => {
+                const d = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() - baseDate.getDay() + i);
+                return dayNames[d.getDay()] + ' ' + d.getDate();
+              });
+
+              const startOfWeek = (date) => {
+                const d = new Date(date);
+                const diff = d.getDay();
+                d.setDate(d.getDate() - diff);
+                d.setHours(0,0,0,0);
+                return d;
+              };
+              const addDays = (date, n) => {
+                const d = new Date(date);
+                d.setDate(d.getDate() + n);
+                return d;
+              };
+              const getWeekDays = (weeks) => {
+                const start = startOfWeek(baseDate);
                 const result = [];
-                for (let w = 0; w < weeks; w++) {
-                  baseWeekDays.forEach(label => {
-                    const parts = label.split(' ');
-                    const name = parts[0];
-                    const baseNum = parseInt(parts[1], 10);
-                    const added = baseNum + (w * 7) + (offsetDays || 0);
-                    const num = (((added - 1) % monthLength) + monthLength) % monthLength + 1; // wrap 1..monthLength
-                    result.push(name + ' ' + num);
-                  });
+                for (let i = 0; i < weeks * 7; i++) {
+                  const d = addDays(start, i);
+                  result.push(dayNames[d.getDay()] + ' ' + d.getDate());
                 }
                 return result;
               };
+
               const baseSelectedDayIndex = 1; // Monday as the initial Day view target
               const getDaysForView = () => {
                 if (viewMode === 'd') {
-                  const offset = ((startOffsetDays % 7) + 7) % 7;
-                  // Rotate weekday name with offset
-                  const name = baseWeekDays[offset].split(' ')[0];
-                  // Compute number from Sun 21 base + total day offset
-                  const dayNum = (((21 + startOffsetDays) - 1) % monthLength) + 1;
-                  const label = name + ' ' + dayNum;
-                  return { labels: [label], indices: [offset] };
+                  const d = new Date(baseDate);
+                  const label = dayNames[d.getDay()] + ' ' + d.getDate();
+                  return { labels: [label], indices: [d.getDay()] };
                 }
                 if (weeksToShow === 2) {
-                  const labels = getWeekDays(2, startOffsetDays);
-                  const baseMod14 = ((startOffsetDays % 14) + 14) % 14;
-                  return { labels, indices: Array.from({ length: 14 }, (_, i) => (i + baseMod14) % 14) };
+                  const labels = getWeekDays(2);
+                  return { labels, indices: labels.map((_, i) => (startOfWeek(baseDate).getDay() + i) % 7) };
                 }
-                const labels = getWeekDays(1, startOffsetDays);
-                const baseMod7 = ((startOffsetDays % 7) + 7) % 7;
-                return { labels, indices: Array.from({ length: 7 }, (_, i) => (i + baseMod7) % 7) };
+                const labels = getWeekDays(1);
+                return { labels, indices: labels.map((_, i) => (startOfWeek(baseDate).getDay() + i) % 7) };
               };
               const daysForView = getDaysForView();
               const weekDays = daysForView.labels;
@@ -364,7 +393,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                   return weekDays[0];
                 }
                 if (viewMode === 'm' || viewMode === 'month') {
-                  return 'Month';
+                  return monthNames[calendarMonth] + ' ' + calendarYear;
                 }
                 // Week or 2-week: show date range from first to last label
                 if (weekDays.length > 0) {
@@ -377,18 +406,23 @@ router.get('/employee-scheduling', (req, res, next) => {
 
               // Month view renderer
               const renderMonthView = () => {
-                const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-                const totalCells = 35; // 5 weeks grid for simplicity
-                const startNumber = (((1 + startOffsetDays) - 1) % monthLength + monthLength) % monthLength + 1;
+                // Show full calendar month grid (start from Sunday on/before 1st, 6 weeks)
+                const first = new Date(calendarYear, calendarMonth, 1);
+                const monthStartGrid = new Date(first);
+                monthStartGrid.setDate(1 - monthStartGrid.getDay());
+                const visibleYear = first.getFullYear();
                 const cells = [];
-                for (let i = 0; i < totalCells; i++) {
-                  const dayNum = (((startNumber + i) - 1) % monthLength) + 1;
-                  const dow = i % 7;
+                for (let i = 0; i < 42; i++) { // 6 weeks x 7 days
+                  const d = new Date(monthStartGrid);
+                  d.setDate(monthStartGrid.getDate() + i);
+                  const dayNum = d.getDate();
+                  const dow = d.getDay();
+                  const inCurrentMonth = d.getMonth() === calendarMonth;
                   const shiftsForDow = displayShifts.filter(s => s.dayIndex === dow && (showOpenShifts || s.status !== 'open'));
                   const single = shiftsForDow.length === 1;
                   const chipHeight = single ? 40 : 26;
                   const chipsToShow = single ? shiftsForDow.slice(0, 1) : shiftsForDow.slice(0, 2);
-                  cells.push({ dayNum, dow, chipsToShow, chipHeight });
+                  cells.push({ dayNum, dow, inCurrentMonth, chipsToShow, chipHeight, dateObj: d });
                 }
 
                 return (
@@ -398,27 +432,30 @@ router.get('/employee-scheduling', (req, res, next) => {
                         <div key={i} className="border-r border-b border-gray-300 bg-gray-50 p-2 text-center text-sm font-medium">{d}</div>
                       ))}
                       {cells.map((cell, idx) => (
-                        <div key={idx} className="border-r border-b border-gray-200" style={{minHeight: '100px', padding: '6px'}}>
-                          <div className="text-xs text-gray-600 mb-1">{cell.dayNum}</div>
+                        <div key={idx} className={"border-r border-b cursor-pointer " + (cell.inCurrentMonth ? 'border-gray-200' : 'bg-gray-50 text-gray-400 border-gray-100')} style={{minHeight: '100px', padding: '6px'}} onClick={() => {
+                          setBaseDate(new Date(cell.dateObj.getFullYear(), cell.dateObj.getMonth(), cell.dateObj.getDate()));
+                          setViewMode('d');
+                        }}>
+                          <div className="text-xs mb-1">{cell.dayNum}</div>
                           <div className="flex flex-col gap-1">
-                            {cell.chipsToShow.map((shift, si) => (
-                              <div key={si} className="rounded relative" style={{height: cell.chipHeight + 'px', backgroundColor: roleColors[shift.role], border: '1px solid ' + roleColors[shift.role]}}>
-                                {shift.status === 'assigned' && (
-                                  <div className="absolute inset-0 rounded" style={{backgroundColor: 'rgba(255,255,255,0.5)'}}></div>
-                                )}
-                                {shift.status === 'open' && (
-                                  <div className="absolute inset-0 rounded" style={{background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.6) 10px, transparent 10px, transparent 20px)'}}></div>
-                                )}
-                                <div className="absolute left-1 right-1 top-1 text-[10px] font-semibold text-white drop-shadow-sm truncate" style={{lineHeight: '1'}}>
-                                  {shift.role.charAt(0).toUpperCase() + shift.role.slice(1)}
-                                </div>
-                                {(shift.status === 'open' || shift.status === 'assigned') && (
-                                  <button onClick={() => setModalShift(shift)} className="absolute px-2 py-0.5 text-[10px] bg-white/80 hover:bg-white text-gray-800 rounded shadow" style={{left: '50%', transform: 'translateX(-50%)', bottom: '4px'}}>
-                                    View
-                                  </button>
-                                )}
+                          {cell.chipsToShow.map((shift, si) => (
+                            <div 
+                              key={si} 
+                              className="rounded relative cursor-pointer" 
+                              style={{height: cell.chipHeight + 'px', backgroundColor: roleColors[shift.role], border: '1px solid ' + roleColors[shift.role]}}
+                              onClick={(e) => { e.stopPropagation(); setModalShift(shift); }}
+                            >
+                              {shift.status === 'assigned' && (
+                                <div className="absolute inset-0 rounded" style={{backgroundColor: 'rgba(255,255,255,0.5)', pointerEvents: 'none'}}></div>
+                              )}
+                              {shift.status === 'open' && (
+                                <div className="absolute inset-0 rounded" style={{background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.6) 10px, transparent 10px, transparent 20px)', pointerEvents: 'none'}}></div>
+                              )}
+                              <div className="absolute left-1 right-1 top-1 text-[10px] font-semibold text-white drop-shadow-sm truncate" style={{lineHeight: '1', pointerEvents: 'none'}}>
+                                {(shift.status === 'accepted' && shift.workerName) ? shift.workerName : (shift.role.charAt(0).toUpperCase() + shift.role.slice(1))}
                               </div>
-                            ))}
+                            </div>
+                          ))}
                           </div>
                         </div>
                       ))}
@@ -443,13 +480,13 @@ router.get('/employee-scheduling', (req, res, next) => {
                     endHour = hours.close + 1;
                   } else {
                     // Week / 2W: use min/max across the week so all days fit
-                    let earliestOpen = 24;
-                    let latestClose = 0;
-                    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-                      const dayHours = getStoreHours(dayIndex);
-                      earliestOpen = Math.min(earliestOpen, dayHours.open);
-                      latestClose = Math.max(latestClose, dayHours.close);
-                    }
+                let earliestOpen = 24;
+                let latestClose = 0;
+                for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+                  const dayHours = getStoreHours(dayIndex);
+                  earliestOpen = Math.min(earliestOpen, dayHours.open);
+                  latestClose = Math.max(latestClose, dayHours.close);
+                }
                     startHour = earliestOpen - 1; // 1 hour before earliest open
                     endHour = latestClose + 1; // 1 hour after latest close
                   }
@@ -457,10 +494,10 @@ router.get('/employee-scheduling', (req, res, next) => {
                 for (let hour = startHour; hour < endHour; hour += 0.5) {
                   const hourInt = Math.floor(hour);
                   const minute = (hour % 1 === 0) ? 0 : 30;
-                  slots.push({
-                    hour: hourInt,
-                    minute,
-                    label: (hour % 1 === 0 && (hour === startHour || hourInt % 2 === 0)) ? formatHour(hourInt) : ''
+                  slots.push({ 
+                    hour: hourInt, 
+                    minute, 
+                    label: (hour % 1 === 0 && (hour === startHour || hourInt % 2 === 0)) ? formatHour(hourInt) : '' 
                   });
                 }
                 return slots;
@@ -483,6 +520,37 @@ router.get('/employee-scheduling', (req, res, next) => {
 
               const [timeSlots, setTimeSlots] = useState(() => generateTimeSlots());
               
+              // Canonical availability storage: per absolute day number (1..monthLength), 48 half-hour slots
+              const [availabilityByDay, setAvailabilityByDay] = useState({});
+
+              const dayNameToDow = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+              const getAbsDayNumForColumn = (dayIndex) => {
+                const label = weekDays[dayIndex] || '';
+                const parts = label.split(' ');
+                const num = parseInt(parts[1], 10);
+                return isNaN(num) ? 1 : num;
+              };
+              const getDowForColumn = (dayIndex) => {
+                const label = weekDays[dayIndex] || '';
+                const name = label.split(' ')[0];
+                return typeof dayNameToDow[name] === 'number' ? dayNameToDow[name] : 0;
+              };
+              const ensureDayArray = (absDayNum, dow) => {
+                const key = String(absDayNum);
+                const existing = availabilityByDay[key];
+                if (Array.isArray(existing) && existing.length === 48) return existing;
+                // build defaults for this day based on store hours
+                const hours = getStoreHours(dow);
+                const arr = new Array(48).fill(1); // available by default inside hours
+                for (let i = 0; i < 48; i++) {
+                  const hour = Math.floor(i / 2);
+                  if (hour < hours.open || hour >= hours.close) arr[i] = 3; // closed
+                }
+                setAvailabilityByDay((prev) => ({ ...prev, [key]: arr }));
+                return arr;
+              };
+              const getSlotIndex = (slot) => slot.hour * 2 + (slot.minute === 30 ? 1 : 0);
+
               // Regenerate slots when toggling 24h view
               useEffect(() => {
                 // store previous before regenerating for mapping
@@ -581,9 +649,12 @@ router.get('/employee-scheduling', (req, res, next) => {
 
               const handleCellMouseDown = (dayIndex, slotIndex) => {
                 if (!editingAvailability) return;
-                const key = dayIndex + '-' + slotIndex;
-                const currentState = availability[key];
-                if (currentState === 3) return;
+                const dow = getDowForColumn(dayIndex);
+                const absDay = getAbsDayNumForColumn(dayIndex);
+                const slot = timeSlots[slotIndex];
+                const minuteIdx = getSlotIndex(slot);
+                const dayArr = ensureDayArray(absDay, dow).slice();
+                if (dayArr[minuteIdx] === 3) return; // closed
                 
                 setIsDrawing(true);
                 const brush = brushRef.current;
@@ -596,17 +667,18 @@ router.get('/employee-scheduling', (req, res, next) => {
                   newState = 2;
                 }
                 
-                setAvailability(prev => {
-                  const updated = { ...prev, [key]: newState };
-                  return updated;
-                });
+                dayArr[minuteIdx] = newState;
+                setAvailabilityByDay((prev) => ({ ...prev, [String(absDay)]: dayArr }));
               };
 
               const handleCellMouseEnter = (dayIndex, slotIndex) => {
                 if (!editingAvailability || !isDrawing) return;
-                const key = dayIndex + '-' + slotIndex;
-                const currentState = availability[key];
-                if (currentState === 3) return;
+                const dow = getDowForColumn(dayIndex);
+                const absDay = getAbsDayNumForColumn(dayIndex);
+                const slot = timeSlots[slotIndex];
+                const minuteIdx = getSlotIndex(slot);
+                const dayArr = ensureDayArray(absDay, dow).slice();
+                if (dayArr[minuteIdx] === 3) return; // closed
                 
                 const brush = brushRef.current;
                 let newState;
@@ -618,10 +690,8 @@ router.get('/employee-scheduling', (req, res, next) => {
                   newState = 2;
                 }
                 
-                setAvailability(prev => {
-                  const updated = { ...prev, [key]: newState };
-                  return updated;
-                });
+                dayArr[minuteIdx] = newState;
+                setAvailabilityByDay((prev) => ({ ...prev, [String(absDay)]: dayArr }));
               };
 
               const handleMouseUp = () => {
@@ -647,12 +717,12 @@ router.get('/employee-scheduling', (req, res, next) => {
                 return Math.max(0, Math.floor(diff / 30));
               };
 
-              const getShiftAtSlot = (dayIndex, slotIndex) => {
+              const getShiftAtSlot = (dow, slotIndex) => {
                 const slot = timeSlots[slotIndex];
                 if (!slot) return null;
 
                 for (const shift of displayShifts) {
-                  if (shift.dayIndex !== dayIndex) continue;
+                  if (shift.dayIndex !== dow) continue;
 
                   const shiftStartSlot = timeToSlotIndex(shift.startHour, shift.startMinute);
                   const shiftEndSlot = timeToSlotIndex(shift.endHour, shift.endMinute);
@@ -713,13 +783,15 @@ router.get('/employee-scheduling', (req, res, next) => {
                     </div>
 
                     <div className="flex items-center gap-3">
-                      <button className="px-3 py-1 text-sm hover:bg-gray-100 rounded border" onClick={() => setStartOffsetDays(0)}>
+                      <button className="px-3 py-1 text-sm hover:bg-gray-100 rounded border" onClick={() => setBaseDate(new Date())}>
                         Now
                       </button>
                       <div className="flex items-center gap-2">
                         <button className="p-1 hover:bg-gray-100 rounded" title="Previous" onClick={() => {
-                          const step = (viewMode === '2w') ? 14 : ((viewMode === 'm' || viewMode === 'month') ? monthLength : ((viewMode === 'w' || viewMode === 'week') ? 7 : 1));
-                          setStartOffsetDays(prev => prev - step);
+                          if (viewMode === 'm' || viewMode === 'month') setBaseDate(d => new Date(d.getFullYear(), d.getMonth()-1, 1));
+                          else if (viewMode === '2w') setBaseDate(d => addDays(d, -14));
+                          else if (viewMode === 'w' || viewMode === 'week') setBaseDate(d => addDays(d, -7));
+                          else setBaseDate(d => addDays(d, -1));
                         }}>
                           <ChevronDown className="w-4 h-4 rotate-90" />
                         </button>
@@ -727,8 +799,10 @@ router.get('/employee-scheduling', (req, res, next) => {
                           {periodLabel}
                         </div>
                         <button className="p-1 hover:bg-gray-100 rounded" title="Next" onClick={() => {
-                          const step = (viewMode === '2w') ? 14 : ((viewMode === 'm' || viewMode === 'month') ? monthLength : ((viewMode === 'w' || viewMode === 'week') ? 7 : 1));
-                          setStartOffsetDays(prev => prev + step);
+                          if (viewMode === 'm' || viewMode === 'month') setBaseDate(d => new Date(d.getFullYear(), d.getMonth()+1, 1));
+                          else if (viewMode === '2w') setBaseDate(d => addDays(d, 14));
+                          else if (viewMode === 'w' || viewMode === 'week') setBaseDate(d => addDays(d, 7));
+                          else setBaseDate(d => addDays(d, 1));
                         }}>
                           <ChevronDown className="w-4 h-4 -rotate-90" />
                         </button>
@@ -824,142 +898,149 @@ router.get('/employee-scheduling', (req, res, next) => {
                   {viewMode === 'm' ? (
                     renderMonthView()
                   ) : (
-                    <div className="bg-white rounded border border-gray-300 relative" style={{overflow: 'visible'}}>
+                  <div className="bg-white rounded border border-gray-300 relative" style={{overflow: 'visible'}}>
                       <div className="grid" style={{gridTemplateColumns: (viewMode === 'd' ? ('auto minmax(320px, 1fr)') : ('auto repeat(' + weekDays.length + ', 1fr)')), overflow: 'visible'}}>
-                        <div className="border-r border-b border-gray-300 bg-gray-50 p-2"></div>
-                        {weekDays.map((day, i) => (
-                          <div key={i} className="border-r border-b border-gray-300 bg-gray-50 p-2 text-center">
-                            <div className="text-sm font-medium">{day}</div>
-                          </div>
-                        ))}
+                      <div className="border-r border-b border-gray-300 bg-gray-50 p-2"></div>
+                      {weekDays.map((day, i) => (
+                        <div key={i} className="border-r border-b border-gray-300 bg-gray-50 p-2 text-center">
+                          <div className="text-sm font-medium">{day}</div>
+                        </div>
+                      ))}
 
-                        {timeSlots.map((slot, slotIndex) => (
-                          <React.Fragment key={slotIndex}>
-                            <div className="border-r border-b border-gray-300 bg-gray-50 px-2 text-xs text-gray-600 text-right flex items-center justify-end select-none pointer-events-none" style={{height: '20px'}}>
-                              {slot.label}
-                            </div>
-                            {weekDays.map((day, dayIndex) => {
-                              const key = dayIndex + '-' + slotIndex;
-                              const globalDayIndex = dayIndices[dayIndex];
-                              const cellState = availability[key];
-                              const outside = isOutsideStoreHours((globalDayIndex % 7 + 7) % 7, timeSlots[slotIndex].hour);
+                      {timeSlots.map((slot, slotIndex) => (
+                        <React.Fragment key={slotIndex}>
+                          <div className="border-r border-b border-gray-300 bg-gray-50 px-2 text-xs text-gray-600 text-right flex items-center justify-end select-none pointer-events-none" style={{height: '20px'}}>
+                            {slot.label}
+                          </div>
+                          {weekDays.map((day, dayIndex) => {
+                              const dow = getDowForColumn(dayIndex);
+                              const absDay = getAbsDayNumForColumn(dayIndex);
+                              const slot = timeSlots[slotIndex];
+                              const minuteIdx = getSlotIndex(slot);
+                              const dayArr = ensureDayArray(absDay, dow);
+                              let cellState = dayArr[minuteIdx];
+                              const outside = isOutsideStoreHours(dow, slot.hour);
+                              // If user saved a template, project its weekly state as the baseline background
+                              if (savedAvailabilityTemplate && savedAvailabilityTemplate[dow]) {
+                                const tplVal = savedAvailabilityTemplate[dow][minuteIdx];
+                                if (tplVal === 0 || tplVal === 1 || tplVal === 2) {
+                                  // Only override default white/unset values; keep explicit closed (3) and user-painted states
+                                  if (cellState === 1) cellState = tplVal;
+                                }
+                              }
                               const finalState = outside ? 3 : (cellState === 3 ? 1 : cellState);
                               const cellColor = getCellColor(finalState);
-                              const shift = getShiftAtSlot(globalDayIndex, slotIndex);
-                              const hideOpen = shift && (shift.status === 'open') && !showOpenShifts;
-                              
-                              return (
-                                <div 
-                                  key={key}
-                                  className={("border-r border-b border-gray-300 " + cellColor)}
-                                  style={{
-                                    height: '20px',
-                                    cursor: editingAvailability && finalState !== 3 ? 'crosshair' : 'default',
-                                    position: 'relative'
-                                  }}
-                                  onMouseDown={() => handleCellMouseDown(dayIndex, slotIndex)}
-                                  onMouseEnter={() => handleCellMouseEnter(dayIndex, slotIndex)}
-                                >
-                                  {shift && !hideOpen && (
-                                    <div 
-                                      className="rounded"
-                                      style={{
-                                        position: 'absolute',
-                                        top: shift.isFirst ? '0' : '-1px',
-                                        bottom: shift.isLast ? '0' : '-1px',
-                                        left: '12px',
-                                        width: '50%',
-                                        backgroundColor: roleColors[shift.role],
-                                        border: '2px solid ' + roleColors[shift.role],
-                                        borderTop: shift.isFirst ? ('2px solid ' + roleColors[shift.role]) : 'none',
-                                        borderBottom: shift.isLast ? ('2px solid ' + roleColors[shift.role]) : 'none',
-                                        borderRadius: shift.isFirst && shift.isLast ? '4px' : 
-                                                     shift.isFirst ? '4px 4px 0 0' : 
-                                                     shift.isLast ? '0 0 4px 4px' : '0',
-                                        zIndex: shift.isFirst ? 50 : 10
-                                      }}
-                                    >
-                                      {shift.status === 'assigned' && shift.isFirst && (
-                                        <div 
-                                          className="rounded"
-                                          style={{
-                                            position: 'absolute',
-                                            top: 0,
-                                            left: 0,
-                                            right: 0,
-                                            height: (shift.totalHeight) + 'px',
-                                            backgroundColor: 'rgba(255,255,255,0.5)',
-                                            borderRadius: 'inherit',
-                                            zIndex: 40
-                                          }}
-                                        />
-                                      )}
-                                      {shift.status === 'open' && shift.isFirst && (
+                            return (
+                              <div 
+                                  key={dayIndex + '-' + slotIndex}
+                                  className={"border-r border-b border-gray-300 relative select-none " + cellColor}
+                                  style={{height: '20px'}}
+                                onMouseDown={() => handleCellMouseDown(dayIndex, slotIndex)}
+                                onMouseEnter={() => handleCellMouseEnter(dayIndex, slotIndex)}
+                              >
+                                  {(() => {
+                                    const shift = getShiftAtSlot(dow, slotIndex);
+                                    const hideOpen = !showOpenShifts && shift && shift.status === 'open';
+                                    if (!shift || hideOpen) return null;
+                                    return (
+                                  <div 
+                                    className="rounded cursor-pointer"
+                                    style={{
+                                      position: 'absolute',
+                                      top: shift.isFirst ? '0' : '-1px',
+                                      bottom: shift.isLast ? '0' : '-1px',
+                                          left: '12px',
+                                          width: '50%',
+                                      backgroundColor: roleColors[shift.role],
+                                          border: '2px solid ' + roleColors[shift.role],
+                                          borderTop: shift.isFirst ? ('2px solid ' + roleColors[shift.role]) : 'none',
+                                          borderBottom: shift.isLast ? ('2px solid ' + roleColors[shift.role]) : 'none',
+                                      borderRadius: shift.isFirst && shift.isLast ? '4px' : 
+                                                   shift.isFirst ? '4px 4px 0 0' : 
+                                                   shift.isLast ? '0 0 4px 4px' : '0',
+                                      zIndex: shift.isFirst ? 50 : 10
+                                    }}
+                                    onClick={(e) => { e.stopPropagation(); setModalShift(shift); }}
+                                    onMouseDown={(e) => { e.stopPropagation(); }}
+                                  >
+                                        {shift.status === 'assigned' && shift.isFirst && (
+                                      <div 
+                                        className="rounded"
+                                        style={{
+                                          position: 'absolute',
+                                              top: 0,
+                                              left: 0,
+                                              right: 0,
+                                              height: (shift.totalHeight) + 'px',
+                                              backgroundColor: 'rgba(255,255,255,0.5)',
+                                              borderRadius: 'inherit',
+                                              zIndex: 40,
+                                              pointerEvents: 'none'
+                                        }}
+                                      />
+                                    )}
+                                        {shift.status === 'open' && shift.isFirst && (
+                                      <div 
+                                        className="rounded"
+                                        style={{
+                                          position: 'absolute',
+                                              top: 0,
+                                              left: 0,
+                                              right: 0,
+                                              height: (shift.totalHeight) + 'px',
+                                              background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.6) 10px, transparent 10px, transparent 20px)',
+                                              borderRadius: 'inherit',
+                                              zIndex: 40,
+                                              pointerEvents: 'none'
+                                        }}
+                                      />
+                                    )}
+                                    {shift.isFirst && (
+                                      <div
+                                        style={{
+                                          position: 'absolute',
+                                          top: '0',
+                                          left: '50%',
+                                          transform: 'translateX(-50%)',
+                                          height: (shift.totalHeight) + 'px',
+                                          pointerEvents: 'none',
+                                          zIndex: 50
+                                        }}
+                                      >
                                         <div
-                                          className="rounded"
                                           style={{
                                             position: 'absolute',
-                                            top: 0,
-                                            left: 0,
-                                            right: 0,
-                                            height: (shift.totalHeight) + 'px',
-                                            background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.6) 10px, transparent 10px, transparent 20px)',
-                                            borderRadius: 'inherit',
-                                            zIndex: 40
-                                          }}
-                                        />
-                                      )}
-                                      
-                                      {shift.isFirst && (
-                                        <div
-                                          style={{
-                                            position: 'absolute',
-                                            top: '0',
+                                                top: '60px',
                                             left: '50%',
-                                            transform: 'translateX(-50%)',
-                                            height: (shift.totalHeight) + 'px',
-                                            pointerEvents: 'none',
-                                            zIndex: 50
+                                            transform: 'translate(-50%, -50%) rotate(90deg)',
+                                            backgroundColor: 'rgba(0,0,0,0.5)',
+                                            padding: '4px 8px',
+                                            borderRadius: '4px',
+                                            color: 'white',
+                                            fontSize: '12px',
+                                            fontWeight: 'bold',
+                                            textAlign: 'center',
+                                            lineHeight: '1.2',
+                                            whiteSpace: 'nowrap'
                                           }}
                                         >
-                                          <div
-                                            style={{
-                                              position: 'absolute',
-                                              top: '60px',
-                                              left: '50%',
-                                              transform: 'translate(-50%, -50%) rotate(90deg)',
-                                              backgroundColor: 'rgba(0,0,0,0.5)',
-                                              padding: '4px 8px',
-                                              borderRadius: '4px',
-                                              color: 'white',
-                                              fontSize: '12px',
-                                              fontWeight: 'bold',
-                                              textAlign: 'center',
-                                              lineHeight: '1.2',
-                                              whiteSpace: 'nowrap'
-                                            }}
-                                          >
-                                            <div>{formatTime(shift.startHour, shift.startMinute)} - {formatTime(shift.endHour, shift.endMinute)}</div>
-                                            <div>{shift.role.charAt(0).toUpperCase() + shift.role.slice(1)}</div>
-                                            <div>{shift.location}</div>
-                                          </div>
+                                          <div>{formatTime(shift.startHour, shift.startMinute)} - {formatTime(shift.endHour, shift.endMinute)}</div>
+                                          <div>{shift.status === 'accepted' && shift.workerName ? shift.workerName : (shift.role.charAt(0).toUpperCase() + shift.role.slice(1))}</div>
+                                          <div>{shift.location}</div>
                                         </div>
-                                      )}
-
-                                      {(shift.status === 'open' || shift.status === 'assigned') && shift.isFirst && (
-                                        <button onClick={() => setModalShift(shift)} className="absolute px-2 py-1 text-xs bg-white/90 hover:bg-white text-gray-800 rounded shadow" style={{zIndex: 60, top: '120px', left: '50%', transform: 'translateX(-50%)'}}>
-                                          View
-                                        </button>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </React.Fragment>
-                        ))}
-                      </div>
+                                      </div>
+                                    )}
+                                        {/* View button removed; entire card now opens modal on click */}
+                                      </div>
+                                    );
+                                  })()}
+                              </div>
+                            );
+                          })}
+                        </React.Fragment>
+                      ))}
                     </div>
+                  </div>
                   )}
 
                   {modalShift && (
@@ -979,7 +1060,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                       </div>
                     </div>
                   )}
-                  
+
                   <div className="mt-3 flex items-center gap-4 text-xs text-gray-600">
                     <div className="flex items-center gap-1">
                       <div className="w-4 h-4 bg-gray-400 border border-gray-500 rounded"></div>
@@ -1147,19 +1228,19 @@ router.get('/employee-scheduling', (req, res, next) => {
 
               const Section = ({ title, open, onToggle, children, subtitle, closedContent, inlineContent }) => (
                 <div className="bg-white rounded-lg border border-gray-200 shadow-sm mb-4">
-                  <button onClick={onToggle} className="w-full flex items-start justify-between px-4 py-3">
+                  <div role="button" tabIndex={0} onClick={onToggle} className="w-full flex items-start justify-between px-4 py-3">
                     <div className="flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="font-medium text-gray-900">{title}</div>
                         {inlineContent ? <div className="flex flex-wrap items-center gap-2">{inlineContent}</div> : null}
-                      </div>
+                </div>
                       {subtitle && <div className="text-xs text-gray-500 mt-0.5">{subtitle}</div>}
                     </div>
                     <ChevronDown className={"w-4 h-4 text-gray-500 transition-transform " + (open ? 'transform rotate-180' : '')} />
-                  </button>
+                  </div>
                   {open ? <div className="px-4 pb-4">{children}</div> : (closedContent ? <div className="px-4 pb-4">{closedContent}</div> : null)}
-                </div>
-              );
+              </div>
+            );
 
               const QuickButton = ({ children, onClick }) => (
                 <button onClick={onClick} className="px-3 py-1.5 text-sm bg-white border border-gray-200 rounded shadow-sm hover:bg-gray-50">
@@ -1257,12 +1338,97 @@ router.get('/employee-scheduling', (req, res, next) => {
                 );
               };
 
+              const ExpirationControl = ({ initialMode = null, initialDate = '', onChange }) => {
+                const [mode, setMode] = useState(initialMode);
+                const [date, setDate] = useState(initialDate || new Date().toISOString().split('T')[0]);
+                const inputRef = useRef(null);
+
+                useEffect(() => {
+                  if (onChange) {
+                    const value = mode === 'perpetual' ? 'perpetual' : (mode === 'date' ? date : null);
+                    onChange(value);
+                  }
+                }, [mode, date, onChange]);
+
+                const handleCalendarClick = (e) => {
+                  e.stopPropagation();
+                  setMode('date');
+                  if (inputRef.current) {
+                    if (typeof inputRef.current.showPicker === 'function') {
+                      inputRef.current.showPicker();
+                    } else {
+                      inputRef.current.click();
+                    }
+                  }
+                };
+
+                const handleInfinityClick = (e) => {
+                  e.stopPropagation();
+                  setMode('perpetual');
+                };
+
+                const formatDate = (dateStr) => {
+                  if (!dateStr) return '';
+                  // Parse YYYY-MM-DD as a LOCAL date to avoid timezone shifting the day
+                  const parts = dateStr.split('-');
+                  if (parts.length !== 3) return dateStr;
+                  const y = parseInt(parts[0], 10);
+                  const m = parseInt(parts[1], 10) - 1;
+                  const d = parseInt(parts[2], 10);
+                  const localDate = new Date(y, m, d);
+                  if (isNaN(localDate.getTime())) return dateStr;
+                  return localDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+                };
+
+                return (
+                  <div className="relative flex items-center gap-2 px-3 py-1.5 border border-gray-300 rounded-lg bg-white" onClick={(e) => e.stopPropagation()}>
+                    <button type="button" onClick={handleCalendarClick} className={"transition-colors flex-shrink-0 " + (mode === 'date' ? 'text-gray-300 cursor-default' : 'text-blue-400 hover:text-blue-600')} disabled={mode === 'date'}>
+                      <Calendar className="w-4 h-4" />
+                    </button>
+                    <div className="flex-1 min-w-0" onClick={(e) => { e.stopPropagation(); handleCalendarClick(e); }}>
+                      {mode === 'date' ? (
+                        <span className="text-sm font-medium text-gray-900 whitespace-nowrap cursor-pointer">{formatDate(date)}</span>
+                      ) : mode === 'perpetual' ? (
+                        <span className="text-sm font-medium text-gray-900 whitespace-nowrap cursor-pointer">Perpetual</span>
+                      ) : (
+                        <span className="text-sm text-gray-400 whitespace-nowrap cursor-pointer">Expires</span>
+                      )}
+                    </div>
+                    <button type="button" onClick={handleInfinityClick} className={"transition-colors flex-shrink-0 " + (mode === 'perpetual' ? 'text-gray-300 cursor-default' : 'text-blue-400 hover:text-blue-600')} disabled={mode === 'perpetual'}>
+                      <InfinityIcon className="w-4 h-4" />
+                    </button>
+                    <input 
+                      ref={inputRef}
+                      type="date"
+                      value={date}
+                      onChange={(e) => { const v = e.target.value; if (v && v.length > 0) { setMode('date'); setDate(v); } else { setMode(null); setDate(''); } }}
+                      style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 0, height: 0 }}
+                      tabIndex={-1}
+                      aria-hidden="true"
+                    />
+                  </div>
+                );
+              };
+
               const SkillSelector = ({ skills, selectedSkills, onSelectionChange = () => {}, onSkillsChange = () => {}, allowManagement = true }) => {
                 const [localSkills, setLocalSkills] = useState(skills || []);
                 const [localSelected, setLocalSelected] = useState(selectedSkills || []);
                 const [open, setOpen] = useState(false);
+                const [expirationBySkill, setExpirationBySkill] = useState({}); // skill -> 'YYYY-MM-DD'
+                const [docBySkill, setDocBySkill] = useState({}); // skill -> object URL or href
 
-                useEffect(() => { setLocalSkills(skills || []); }, [skills]);
+                useEffect(() => {
+                  setLocalSkills(skills || []);
+                  // initialize maps for new skills
+                  const exp = {};
+                  const docs = {};
+                  (skills || []).forEach((s) => {
+                    exp[s] = (expirationBySkill && expirationBySkill[s]) || '';
+                    docs[s] = (docBySkill && docBySkill[s]) || '';
+                  });
+                  setExpirationBySkill(exp);
+                  setDocBySkill(docs);
+                }, [skills]);
                 useEffect(() => { setLocalSelected(selectedSkills || []); }, [selectedSkills]);
 
                 const total = (localSkills || []).length;
@@ -1303,6 +1469,8 @@ router.get('/employee-scheduling', (req, res, next) => {
                               <input type="checkbox" checked={allSelected} onChange={toggleAll} />
                             </th>
                             <th className="text-left p-2 font-semibold text-sm text-gray-700 border-b border-gray-200">Skill</th>
+                            <th className="w-40 p-2 text-left font-semibold text-sm text-gray-700 border-b border-gray-200">Expiration</th>
+                            <th className="w-48 p-2 text-center font-semibold text-sm text-gray-700 border-b border-gray-200">Documents</th>
                             <th className="w-32 p-2 text-center border-b border-gray-200">
                               {allowManagement ? (
                                 <button onClick={() => setOpen(true)} className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 text-xs font-medium rounded">Manage Skills</button>
@@ -1319,6 +1487,34 @@ router.get('/employee-scheduling', (req, res, next) => {
                                   <input type="checkbox" checked={isSelected} onChange={() => toggleSkill(skill)} onClick={(e) => e.stopPropagation()} />
                                 </td>
                                 <td className="p-2 text-sm text-gray-700">{skill}</td>
+                                <td className="p-2">
+                                  <ExpirationControl
+                                    initialMode={((expirationBySkill && expirationBySkill[skill]) === 'perpetual') ? 'perpetual' : ((expirationBySkill && expirationBySkill[skill]) ? 'date' : null)}
+                                    initialDate={(expirationBySkill && expirationBySkill[skill] && expirationBySkill[skill] !== 'perpetual') ? expirationBySkill[skill] : ''}
+                                    onChange={(val) => {
+                                      setExpirationBySkill((prev) => ({ ...prev, [skill]: val }));
+                                    }}
+                                  />
+                                </td>
+                                <td className="p-2 text-sm text-center">
+                                  {(docBySkill && docBySkill[skill]) ? (
+                                    <a href={docBySkill[skill]} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-blue-600 underline">view</a>
+                                  ) : (
+                                    <button className="text-blue-600 underline text-sm" onClick={(e) => {
+                                      e.stopPropagation();
+                                      const input = document.createElement('input');
+                                      input.type = 'file';
+                                      input.onchange = (ev) => {
+                                        const file = ev.target && ev.target.files && ev.target.files[0];
+                                        if (file) {
+                                          const url = URL.createObjectURL(file);
+                                          setDocBySkill((prev) => ({ ...prev, [skill]: url }));
+                                        }
+                                      };
+                                      input.click();
+                                    }}>upload</button>
+                                  )}
+                                </td>
                                 <td className="p-2"></td>
                               </tr>
                             );
@@ -1344,9 +1540,9 @@ router.get('/employee-scheduling', (req, res, next) => {
                     <span className="text-sm text-gray-500">No skills selected</span>
                   ) : (
                     (selected || []).map((s) => (
-                      <span key={s} className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-white text-xs" style={{backgroundColor: '#4f46e5'}}>
-                        <span>{s}</span>
-                        <button className="w-4 h-4 leading-none text-white/90 hover:text-white" onClick={(e) => { e.stopPropagation(); onRemove(s); }}>×</button>
+                      <span key={s} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-white text-[11px]" style={{backgroundColor: '#4f46e5'}}>
+                        <span className="leading-none">{s}</span>
+                        <button className="w-3.5 h-3.5 leading-none text-white/90 hover:text-white flex items-center justify-center" onClick={(e) => { e.stopPropagation(); onRemove(s); }}>×</button>
                       </span>
                     ))
                   )}
@@ -1355,42 +1551,11 @@ router.get('/employee-scheduling', (req, res, next) => {
 
               return (
                 <div className="p-4 md:p-6">
-                  <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-gray-200 -mx-4 md:-mx-6 px-4 md:px-6 py-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                          <User className="w-7 h-7 text-white" />
-                        </div>
-                        <div>
-                          <div className="text-lg font-semibold text-gray-900">{employee.firstName} {employee.middleName} {employee.lastName} <span className="text-gray-500 font-normal">({employee.preferredName})</span></div>
-                          <div className="text-sm text-gray-600">{employee.id}</div>
-                          <div className="flex gap-2 mt-1">
-                            <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full font-medium">{employee.employment.status}</span>
-                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">{employee.pay.type}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <QuickButton onClick={() => alert('Edit profile')}>Edit</QuickButton>
-                        <QuickButton onClick={() => alert('Archived')}>Archive</QuickButton>
-                        <QuickButton onClick={() => alert('Password reset link sent')}>Reset Password</QuickButton>
-                        <QuickButton onClick={() => alert('Open message composer')}>Message</QuickButton>
-                      </div>
-                    </div>
-                  </div>
+                  {/* Profile header removed per request */}
 
-                  {expiringSoon.length > 0 && (
-                    <div className="mt-4 mb-2 p-3 rounded border text-sm" style={{backgroundColor: '#FFF7ED', borderColor: '#FDBA74', color: '#9A3412'}}>
-                      <div className="font-semibold mb-1">CAS Messages</div>
-                      <ul className="list-disc ml-5">
-                        {expiringSoon.map((a, i) => (
-                          <li key={i}>{a.label}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                  {/* Summary banner removed per request */}
 
-                  <Section title="1. Personal Information" open={expanded.personal} onToggle={() => toggle('personal')}>
+                  <Section title="Personal Information" open={expanded.personal} onToggle={() => toggle('personal')}>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                       <div className="md:row-span-2">
                         <div className="text-gray-500 mb-1">Photograph</div>
@@ -1427,10 +1592,17 @@ router.get('/employee-scheduling', (req, res, next) => {
                         <div className="text-gray-500">Emergency contact</div>
                         <div className="font-medium">{employee.emergencyContacts[0].name} ({employee.emergencyContacts[0].relation}) — {employee.emergencyContacts[0].phone}</div>
                       </div>
+                      <div className="md:col-span-2">
+                        <div className="text-gray-500">Password</div>
+                        <div className="flex items-center gap-2">
+                          <input type="password" value="••••••••" readOnly className="border rounded px-2 py-1 text-sm w-48 bg-gray-50" />
+                          <button className="px-2 py-1 text-sm border rounded" onClick={() => alert('Password reset link sent')}>Reset</button>
+                        </div>
+                      </div>
                     </div>
                   </Section>
 
-                  <Section title="2. Identity" open={expanded.identity} onToggle={() => toggle('identity')} inlineContent={identityChips}>
+                  <Section title="Identity" open={expanded.identity} onToggle={() => toggle('identity')} inlineContent={identityChips}>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                       <div className="md:col-span-2">
                         <div className="font-medium mb-2">Government IDs</div>
@@ -1467,7 +1639,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                     </div>
                   </Section>
 
-                  <Section title="4. Roles & Sub-roles" open={expanded.roles} onToggle={() => toggle('roles')} inlineContent={rolesHeaderChips}>
+                  <Section title="Roles & Sub-roles" open={expanded.roles} onToggle={() => toggle('roles')} inlineContent={rolesHeaderChips}>
                     <div className="space-y-3 text-sm">
                       {employee.roles.map((r, idx) => (
                         <div key={idx} className="flex items-center justify-between border rounded p-2">
@@ -1485,13 +1657,13 @@ router.get('/employee-scheduling', (req, res, next) => {
                     </div>
                   </Section>
 
-                  <Section title="5. Skills" open={expanded.skills} onToggle={() => toggle('skills')} inlineContent={<SkillsChips selected={selectedSkills} onRemove={(s) => setSelectedSkills((selectedSkills || []).filter((x) => x !== s))} />}>
+                  <Section title="Skills" open={expanded.skills} onToggle={() => toggle('skills')} inlineContent={<SkillsChips selected={selectedSkills} onRemove={(s) => setSelectedSkills((selectedSkills || []).filter((x) => x !== s))} />}>
                     <div className="space-y-3">
                       <SkillSelector skills={skillsList} selectedSkills={selectedSkills} onSelectionChange={setSelectedSkills} onSkillsChange={setSkillsList} allowManagement={true} />
                     </div>
                   </Section>
 
-                  <Section title="6. Locations" open={expanded.locations} onToggle={() => toggle('locations')} inlineContent={locationHeaderChips}>
+                  <Section title="Locations" open={expanded.locations} onToggle={() => toggle('locations')} inlineContent={locationHeaderChips}>
                     <div className="space-y-3 text-sm">
                       <div className="flex items-center gap-2">
                         <input id="crossloc" type="checkbox" checked={employee.crossLocation} onChange={() => {}} />
@@ -1509,27 +1681,180 @@ router.get('/employee-scheduling', (req, res, next) => {
                     </div>
                   </Section>
 
-                  <Section title="7. Scheduling Preferences" open={expanded.scheduling} onToggle={() => toggle('scheduling')}>
+                  <Section title="Scheduling Preferences" open={expanded.scheduling} onToggle={() => toggle('scheduling')}>
                     <div className="space-y-4 text-sm">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
-                          <div className="text-gray-500">Desired hours / week</div>
-                          <div className="font-medium">{employee.availability.desiredHoursPerWeek} hrs</div>
-                        </div>
-                        <div>
-                          <div className="text-gray-500">Preferred shifts</div>
-                          <div className="font-medium">{employee.availability.preferredShifts.join(', ')}</div>
-                        </div>
-                        <div>
-                          <div className="text-gray-500">Overtime consent</div>
-                          <div className="font-medium">{employee.availability.overtimeConsent ? 'Yes' : 'No'}</div>
-                        </div>
-                      </div>
-                      <AvailabilityPreview />
+                      {(() => {
+                        // Inline component: Scheduling Preferences Template (Week / 2W), paintable
+                        const Template = () => {
+                          const tplView = 'week';
+                          const [tplBrush, setTplBrush] = useState('available'); // unavailable|available|preferred
+                          const [tplDrawing, setTplDrawing] = useState(false);
+
+                          const getTplStoreHours = (dow) => {
+                            const isWeekend = dow === 0 || dow === 6;
+                            return { open: isWeekend ? 10 : 9, close: isWeekend ? 22 : 19 };
+                          };
+
+                          const tplWeeks = 1;
+                          const tplDayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                          const tplWeekDays = Array.from({length: tplWeeks * 7}, (_, i) => tplDayNames[i % 7]);
+
+                          const generateTplTimeSlots = () => {
+                            let earliest = 24; let latest = 0;
+                            for (let d = 0; d < 7; d++) {
+                              const h = getTplStoreHours(d);
+                              earliest = Math.min(earliest, h.open);
+                              latest = Math.max(latest, h.close);
+                            }
+                            const startHour = earliest - 1;
+                            const endHour = latest + 1;
+                            const slots = [];
+                            for (let hour = startHour; hour < endHour; hour += 0.5) {
+                              const hourInt = Math.floor(hour);
+                              const minute = (hour % 1 === 0) ? 0 : 30;
+                              const label = (hour % 1 === 0 && hourInt % 2 === 0)
+                                ? (hourInt === 0 ? '12a' : (hourInt < 12 ? (hourInt + 'a') : (hourInt === 12 ? '12p' : ((hourInt - 12) + 'p'))))
+                                : '';
+                              slots.push({ hour: hourInt, minute, label });
+                            }
+                            return slots;
+                          };
+
+                          const [tplSlots, setTplSlots] = useState(() => generateTplTimeSlots());
+                          useEffect(() => { setTplSlots(generateTplTimeSlots()); }, [tplView]);
+
+                          const [tplAvail, setTplAvail] = useState(() => {
+                            const init = {};
+                            for (let d = 0; d < tplWeekDays.length; d++) {
+                              const dow = d % 7;
+                              for (let s = 0; s < tplSlots.length; s++) {
+                                const key = d + '-' + s;
+                                const outside = tplSlots[s] ? (tplSlots[s].hour < getTplStoreHours(dow).open || tplSlots[s].hour >= getTplStoreHours(dow).close) : false;
+                                init[key] = outside ? 3 : 1;
+                              }
+                            }
+                            return init;
+                          });
+                          useEffect(() => {
+                            setTplAvail(prev => {
+                              const next = {};
+                              for (let d = 0; d < tplWeekDays.length; d++) {
+                                const dow = d % 7;
+                                for (let s = 0; s < tplSlots.length; s++) {
+                                  const key = d + '-' + s;
+                                  const prevVal = prev[key];
+                                  const outside = tplSlots[s] ? (tplSlots[s].hour < getTplStoreHours(dow).open || tplSlots[s].hour >= getTplStoreHours(dow).close) : false;
+                                  next[key] = typeof prevVal === 'number' ? prevVal : (outside ? 3 : 1);
+                                }
+                              }
+                              return next;
+                            });
+                          }, [tplSlots, tplWeekDays.length]);
+
+                          const hoursByState = useMemo(() => {
+                            const tally = { 0: 0, 1: 0, 2: 0 };
+                            const stepHours = 0.5;
+                            for (let d = 0; d < tplWeekDays.length; d++) {
+                              for (let s = 0; s < tplSlots.length; s++) {
+                                const v = tplAvail[d + '-' + s];
+                                if (v === 0 || v === 1 || v === 2) tally[v] += stepHours;
+                              }
+                            }
+                            return tally;
+                          }, [tplAvail, tplSlots.length, tplWeekDays.length]);
+
+                          const tplGetColor = (state) => {
+                            switch(state) {
+                              case 0: return 'bg-gray-100'; // unavailable
+                              case 1: return 'bg-yellow-100'; // available (light yellow)
+                              case 2: return 'bg-green-100'; // preferred
+                              case 3: return 'bg-gray-400'; // closed
+                              default: return 'bg-yellow-100';
+                            }
+                          };
+
+                          const paint = (dayIndex, slotIndex) => {
+                            const key = dayIndex + '-' + slotIndex;
+                            const current = tplAvail[key];
+                            if (current === 3) return;
+                            const val = tplBrush === 'unavailable' ? 0 : (tplBrush === 'available' ? 1 : 2);
+                            setTplAvail(prev => ({ ...prev, [key]: val }));
+                          };
+
+                          const saveTemplate = (e) => {
+                            e.stopPropagation();
+                            // Build a weekly template by DOW → 48-slot array (0/1/2/3)
+                            const weekly = {};
+                            for (let dow = 0; dow < 7; dow++) {
+                              const arr = new Array(48).fill(1);
+                              for (let s = 0; s < tplSlots.length; s++) {
+                                const v = tplAvail[dow + '-' + s];
+                                const idx = tplSlots[s].hour * 2 + (tplSlots[s].minute === 30 ? 1 : 0);
+                                arr[idx] = v;
+                              }
+                              weekly[dow] = arr;
+                            }
+                            savedAvailabilityTemplate = weekly;
+                            alert('Scheduling template saved and applied to Schedule view background');
+                          };
+
+                          return (
+                            <div className="border rounded" onMouseUp={() => setTplDrawing(false)} onMouseLeave={() => setTplDrawing(false)}>
+                              <div className="px-3 py-2 flex items-center justify-between border-b bg-gray-50">
+                                <div className="flex items-center gap-3">
+                                  <div className="text-sm font-medium"></div>
+                                  <div className="flex items-center gap-4 ml-2">
+                                    <label className="flex items-center text-xs cursor-pointer">
+                                      <input type="radio" name="tplbrush" checked={tplBrush==='unavailable'} onChange={()=>setTplBrush('unavailable')} />
+                                      <span className="ml-1 px-1 rounded border border-gray-300 bg-gray-100">Unavailable</span>
+                                      <span className="ml-1 text-[11px] text-gray-600 inline-block w-14 text-right" style={{fontVariantNumeric:'tabular-nums', marginRight: '10px'}}>{hoursByState[0].toFixed(1)} h</span>
+                                    </label>
+                                    <label className="flex items-center text-xs cursor-pointer">
+                                      <input type="radio" name="tplbrush" checked={tplBrush==='available'} onChange={()=>setTplBrush('available')} />
+                                      <span className="ml-1 px-1 rounded border border-gray-300 bg-yellow-100">Available</span>
+                                      <span className="ml-1 text-[11px] text-gray-600 inline-block w-14 text-right" style={{fontVariantNumeric:'tabular-nums', marginRight: '10px'}}>{hoursByState[1].toFixed(1)} h</span>
+                                    </label>
+                                    <label className="flex items-center text-xs cursor-pointer">
+                                      <input type="radio" name="tplbrush" checked={tplBrush==='preferred'} onChange={()=>setTplBrush('preferred')} />
+                                      <span className="ml-1 px-1 rounded border border-gray-300 bg-green-100">Preferred</span>
+                                      <span className="ml-1 text-[11px] text-gray-600 inline-block w-14 text-right" style={{fontVariantNumeric:'tabular-nums', marginRight: '10px'}}>{hoursByState[2].toFixed(1)} h</span>
+                                    </label>
+                                  </div>
+                                </div>
+                                <button className="px-3 py-1 text-xs rounded border bg-white hover:bg-gray-100" onClick={saveTemplate}>Save Template</button>
+                              </div>
+                              <div className="grid" style={{gridTemplateColumns: ('auto repeat(' + tplWeekDays.length + ', 1fr)')}}>
+                                <div className="border-r border-b bg-gray-50 p-2"></div>
+                                {tplWeekDays.map((d, i) => (
+                                  <div key={i} className="border-r border-b bg-gray-50 p-2 text-center text-xs font-medium">{d}</div>
+                                ))}
+                                {tplSlots.map((slot, sIdx) => (
+                                  <React.Fragment key={sIdx}>
+                                    <div className="border-r border-b bg-gray-50 px-2 text-[10px] text-gray-600 text-right flex items-center justify-end select-none pointer-events-none" style={{height: '20px'}}>
+                                      {slot.label}
+                                    </div>
+                                    {tplWeekDays.map((_, dIdx) => {
+                                      const key = dIdx + '-' + sIdx;
+                                      const color = tplGetColor(tplAvail[key]);
+                                      return (
+                                        <div key={key} className={("border-r border-b relative select-none " + color)} style={{height: '20px'}}
+                                          onMouseDown={() => { setTplDrawing(true); paint(dIdx, sIdx); }}
+                                          onMouseEnter={() => { if (tplDrawing) paint(dIdx, sIdx); }}
+                                        />
+                                      );
+                                    })}
+                                  </React.Fragment>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        };
+                        return <Template />;
+                      })()}
                     </div>
                   </Section>
 
-                  <Section title="8. History & Analytics" open={expanded.history} onToggle={() => toggle('history')}>
+                  <Section title="History & Analytics" open={expanded.history} onToggle={() => toggle('history')}>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                       <div className="border rounded p-3">
                         <div className="text-gray-500">Punctuality</div>
@@ -1548,7 +1873,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                     </div>
                   </Section>
 
-                  <Section title="9. Documents & Notes" open={expanded.documents} onToggle={() => toggle('documents')}>
+                  <Section title="Documents & Notes" open={expanded.documents} onToggle={() => toggle('documents')}>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                       <div className="border rounded p-4">
                         <div className="font-medium mb-2">Upload documents</div>
