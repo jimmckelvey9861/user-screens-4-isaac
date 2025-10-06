@@ -1031,7 +1031,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                                       </div>
                                     )}
                                         {/* View button removed; entire card now opens modal on click */}
-                                      </div>
+                                  </div>
                                     );
                                   })()}
                               </div>
@@ -1127,16 +1127,27 @@ router.get('/employee-scheduling', (req, res, next) => {
 
               const toggle = (key) => setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
 
-              const daysUntil = (dateStr) => {
-                const now = new Date();
-                const d = new Date(dateStr);
-                return Math.ceil((d - now) / (1000 * 60 * 60 * 24));
+              // Date helpers
+              const toLocalDate = (yyyyMmDd) => {
+                if (!yyyyMmDd) return null;
+                const parts = String(yyyyMmDd).split('-');
+                if (parts.length !== 3) return null;
+                const y = parseInt(parts[0], 10);
+                const m = parseInt(parts[1], 10) - 1;
+                const d = parseInt(parts[2], 10);
+                const local = new Date(y, m, d);
+                return isNaN(local.getTime()) ? null : local;
               };
-
-              const formatDate = (dateStr) => {
-                if (!dateStr) return '-';
-                const d = new Date(dateStr);
-                return d.toLocaleDateString();
+              const daysUntilLocal = (yyyyMmDd) => {
+                const target = toLocalDate(yyyyMmDd);
+                if (!target) return NaN;
+                const now = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                return Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+              };
+              const formatShortDate = (yyyyMmDd) => {
+                const d = toLocalDate(yyyyMmDd);
+                return d ? d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
               };
 
               const employee = {
@@ -1193,13 +1204,13 @@ router.get('/employee-scheduling', (req, res, next) => {
 
               const expiringSoon = [];
               employee.documents.identity.forEach((doc) => {
-                const days = daysUntil(doc.expirationDate);
+                const days = daysUntilLocal(doc.expirationDate);
                 if (days <= 30) {
                   expiringSoon.push({ label: doc.type + ' expires in ' + days + ' day(s)', severity: days < 0 ? 'error' : 'warn' });
                 }
               });
               employee.documents.certifications.forEach((doc) => {
-                const days = daysUntil(doc.expirationDate);
+                const days = daysUntilLocal(doc.expirationDate);
                 if (days <= 30) {
                   expiringSoon.push({ label: doc.type + ' expires in ' + days + ' day(s)', severity: days < 0 ? 'error' : 'warn' });
                 }
@@ -1207,7 +1218,7 @@ router.get('/employee-scheduling', (req, res, next) => {
 
               // Header chips
               const identityChips = (employee.documents.identity || []).map((doc, idx) => {
-                const d = daysUntil(doc.expirationDate);
+                const d = daysUntilLocal(doc.expirationDate);
                 const cls = d < 0
                   ? 'bg-red-100 text-red-700'
                   : d <= 180
@@ -1248,38 +1259,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                 </button>
               );
 
-              const AvailabilityPreview = () => {
-                const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-                const widthPerDay = 100 / days.length + '%';
-                const toMinutes = (t) => {
-                  const [h,m] = t.split(':');
-                  return parseInt(h,10)*60 + parseInt(m,10);
-                };
-                return (
-                  <div>
-                    <div className="mb-2 text-sm text-gray-600">Weekly template (preview)</div>
-                    <div className="flex border border-gray-200 rounded overflow-hidden">
-                      {days.map((d) => {
-                        const blocks = (employee.availability.weekly[d] || []);
-                        return (
-                          <div key={d} className="relative h-12 border-r last:border-r-0 border-gray-200" style={{width: widthPerDay}}>
-                            <div className="absolute inset-x-0 top-0 text-xs text-gray-500 text-center">{d}</div>
-                            {blocks.map((b, idx) => {
-                              const start = toMinutes(b.start);
-                              const end = toMinutes(b.end);
-                              const top = (start / (24*60)) * 100;
-                              const height = ((end - start) / (24*60)) * 100;
-                              return (
-                                <div key={idx} className="absolute left-1 right-1 rounded bg-emerald-500/20 border border-emerald-500" style={{ top: top + '%', height: height + '%' }}></div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              };
+              // AvailabilityPreview removed (unused)
 
               // Simple Skills components (no external deps)
               const SkillManagementModal = ({ isOpen, onClose, skills, onSkillsChange, maxSkillLength = 25 }) => {
@@ -1342,18 +1322,24 @@ router.get('/employee-scheduling', (req, res, next) => {
                 const [mode, setMode] = useState(initialMode);
                 const [date, setDate] = useState(initialDate || new Date().toISOString().split('T')[0]);
                 const inputRef = useRef(null);
+                const onChangeRef = useRef(onChange);
+                useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
 
-                useEffect(() => {
-                  if (onChange) {
-                    const value = mode === 'perpetual' ? 'perpetual' : (mode === 'date' ? date : null);
-                    onChange(value);
-                  }
-                }, [mode, date, onChange]);
+                // No effect emission; only emit on user actions to avoid update loops
 
                 const handleCalendarClick = (e) => {
                   e.stopPropagation();
+                  // Ensure we have a valid date value for the picker to open at
+                  if (!date) {
+                    const today = new Date();
+                    const yyyy = today.getFullYear();
+                    const mm = String(today.getMonth() + 1).padStart(2, '0');
+                    const dd = String(today.getDate()).padStart(2, '0');
+                    setDate(yyyy + '-' + mm + '-' + dd);
+                  }
                   setMode('date');
                   if (inputRef.current) {
+                    try { inputRef.current.focus(); } catch (e) {}
                     if (typeof inputRef.current.showPicker === 'function') {
                       inputRef.current.showPicker();
                     } else {
@@ -1365,6 +1351,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                 const handleInfinityClick = (e) => {
                   e.stopPropagation();
                   setMode('perpetual');
+                  if (onChangeRef.current) onChangeRef.current('perpetual');
                 };
 
                 const formatDate = (dateStr) => {
@@ -1381,13 +1368,13 @@ router.get('/employee-scheduling', (req, res, next) => {
                 };
 
                 return (
-                  <div className="relative flex items-center gap-2 px-3 py-1.5 border border-gray-300 rounded-lg bg-white" onClick={(e) => e.stopPropagation()}>
-                    <button type="button" onClick={handleCalendarClick} className={"transition-colors flex-shrink-0 " + (mode === 'date' ? 'text-gray-300 cursor-default' : 'text-blue-400 hover:text-blue-600')} disabled={mode === 'date'}>
+                  <div className="relative flex items-center gap-2 px-3 py-1.5 border border-gray-300 rounded-lg bg-white">
+                    <button type="button" onClick={handleCalendarClick} className={"transition-colors flex-shrink-0 text-blue-400 hover:text-blue-600"}>
                       <Calendar className="w-4 h-4" />
                     </button>
-                    <div className="flex-1 min-w-0" onClick={(e) => { e.stopPropagation(); handleCalendarClick(e); }}>
+                    <div className="flex-1 min-w-0" onClick={handleCalendarClick}>
                       {mode === 'date' ? (
-                        <span className="text-sm font-medium text-gray-900 whitespace-nowrap cursor-pointer">{formatDate(date)}</span>
+                        <span className="text-sm font-medium text-gray-900 whitespace-nowrap cursor-pointer">{formatShortDate(date)}</span>
                       ) : mode === 'perpetual' ? (
                         <span className="text-sm font-medium text-gray-900 whitespace-nowrap cursor-pointer">Perpetual</span>
                       ) : (
@@ -1397,39 +1384,29 @@ router.get('/employee-scheduling', (req, res, next) => {
                     <button type="button" onClick={handleInfinityClick} className={"transition-colors flex-shrink-0 " + (mode === 'perpetual' ? 'text-gray-300 cursor-default' : 'text-blue-400 hover:text-blue-600')} disabled={mode === 'perpetual'}>
                       <InfinityIcon className="w-4 h-4" />
                     </button>
-                    <input 
-                      ref={inputRef}
-                      type="date"
-                      value={date}
-                      onChange={(e) => { const v = e.target.value; if (v && v.length > 0) { setMode('date'); setDate(v); } else { setMode(null); setDate(''); } }}
-                      style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 0, height: 0 }}
-                      tabIndex={-1}
-                      aria-hidden="true"
-                    />
+                    {/* tiny in-viewport input for showPicker */}
+                    <input ref={inputRef} type="date" value={date} onChange={(e) => { const v = e.target.value; if (v && v.length > 0) { setMode('date'); setDate(v); if (onChangeRef.current) onChangeRef.current(v); } else { setMode(null); setDate(''); if (onChangeRef.current) onChangeRef.current(null); } }} style={{ position: 'absolute', top: 0, left: 0, width: '1px', height: '1px', opacity: 0, pointerEvents: 'none' }} aria-hidden="true" />
                   </div>
                 );
               };
 
-              const SkillSelector = ({ skills, selectedSkills, onSelectionChange = () => {}, onSkillsChange = () => {}, allowManagement = true }) => {
+              const SkillSelector = ({ skills, selectedSkills, onSelectionChange = () => {}, onSkillsChange = () => {}, allowManagement = true, expirations = {}, onExpirationChange = () => {}, documents = {}, onDocumentsChange = () => {} }) => {
                 const [localSkills, setLocalSkills] = useState(skills || []);
                 const [localSelected, setLocalSelected] = useState(selectedSkills || []);
                 const [open, setOpen] = useState(false);
-                const [expirationBySkill, setExpirationBySkill] = useState({}); // skill -> 'YYYY-MM-DD'
-                const [docBySkill, setDocBySkill] = useState({}); // skill -> object URL or href
+                const [expirationBySkill, setExpirationBySkill] = useState(expirations || {}); // skill -> 'YYYY-MM-DD' | 'perpetual'
+                const [docBySkill, setDocBySkill] = useState(documents || {}); // skill -> object URL or href
 
                 useEffect(() => {
                   setLocalSkills(skills || []);
-                  // initialize maps for new skills
-                  const exp = {};
-                  const docs = {};
-                  (skills || []).forEach((s) => {
-                    exp[s] = (expirationBySkill && expirationBySkill[s]) || '';
-                    docs[s] = (docBySkill && docBySkill[s]) || '';
-                  });
-                  setExpirationBySkill(exp);
-                  setDocBySkill(docs);
                 }, [skills]);
-                useEffect(() => { setLocalSelected(selectedSkills || []); }, [selectedSkills]);
+                useEffect(() => {
+                  setExpirationBySkill(expirations || {});
+                }, [JSON.stringify(expirations)]);
+                useEffect(() => {
+                  setDocBySkill(documents || {});
+                }, [JSON.stringify(documents)]);
+                useEffect(() => { setLocalSelected(selectedSkills || []); }, [JSON.stringify(selectedSkills)]);
 
                 const total = (localSkills || []).length;
                 const selectedCount = (localSelected || []).length;
@@ -1439,6 +1416,8 @@ router.get('/employee-scheduling', (req, res, next) => {
                   const current = localSelected || [];
                   const next = current.includes(skill) ? current.filter((s) => s !== skill) : current.concat([skill]);
                   setLocalSelected(next);
+                  // ensure expiration map retains existing entries; do not reset
+                  setExpirationBySkill((prev) => { const m = { ...prev }; if (m[skill] === undefined) m[skill] = ''; onExpirationChange(m); return m; });
                   onSelectionChange(next);
                 };
 
@@ -1449,6 +1428,19 @@ router.get('/employee-scheduling', (req, res, next) => {
                 };
 
                 const handleSkillsUpdate = (updated) => {
+                  // Preserve expirations/documents for existing skills; initialize new ones blank
+                  setExpirationBySkill((prev) => {
+                    const next = {};
+                    (updated || []).forEach((s) => { next[s] = prev[s] !== undefined ? prev[s] : ''; });
+                    onExpirationChange(next);
+                    return next;
+                  });
+                  setDocBySkill((prev) => {
+                    const next = {};
+                    (updated || []).forEach((s) => { next[s] = prev[s] !== undefined ? prev[s] : ''; });
+                    onDocumentsChange(next);
+                    return next;
+                  });
                   setLocalSkills(updated);
                   onSkillsChange(updated);
                   // also trim selected if needed
@@ -1482,17 +1474,19 @@ router.get('/employee-scheduling', (req, res, next) => {
                           {(localSkills || []).map((skill) => {
                             const isSelected = (localSelected || []).includes(skill);
                             return (
-                              <tr key={skill} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer" onClick={() => toggleSkill(skill)}>
+                              <tr key={skill} className="border-b border-gray-100 hover:bg-gray-50">
                                 <td className="p-2 text-center">
-                                  <input type="checkbox" checked={isSelected} onChange={() => toggleSkill(skill)} onClick={(e) => e.stopPropagation()} />
+                                  <input type="checkbox" checked={isSelected} onChange={(e) => { e.stopPropagation(); toggleSkill(skill); }} />
                                 </td>
-                                <td className="p-2 text-sm text-gray-700">{skill}</td>
+                                <td className="p-2 text-sm text-gray-700">
+                                  <button className="text-left w-full" type="button" onClick={(e) => { e.stopPropagation(); toggleSkill(skill); }}>{skill}</button>
+                                </td>
                                 <td className="p-2">
                                   <ExpirationControl
                                     initialMode={((expirationBySkill && expirationBySkill[skill]) === 'perpetual') ? 'perpetual' : ((expirationBySkill && expirationBySkill[skill]) ? 'date' : null)}
                                     initialDate={(expirationBySkill && expirationBySkill[skill] && expirationBySkill[skill] !== 'perpetual') ? expirationBySkill[skill] : ''}
                                     onChange={(val) => {
-                                      setExpirationBySkill((prev) => ({ ...prev, [skill]: val }));
+                                      setExpirationBySkill((prev) => { const next = { ...prev, [skill]: val }; onExpirationChange(next); return next; });
                                     }}
                                   />
                                 </td>
@@ -1508,7 +1502,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                                         const file = ev.target && ev.target.files && ev.target.files[0];
                                         if (file) {
                                           const url = URL.createObjectURL(file);
-                                          setDocBySkill((prev) => ({ ...prev, [skill]: url }));
+                                          setDocBySkill((prev) => { const next = { ...prev, [skill]: url }; onDocumentsChange(next); return next; });
                                         }
                                       };
                                       input.click();
@@ -1524,7 +1518,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                     </div>
 
                     {allowManagement ? (
-                      <SkillManagementModal isOpen={open} onClose={() => setOpen(false)} skills={localSkills || []} onSkillsChange={handleSkillsUpdate} />
+                      <SkillManagementModal isOpen={open} onClose={() => setOpen(false)} skills={localSkills || []} onSkillsChange={(updated) => { handleSkillsUpdate(updated); }} />
                     ) : null}
                   </div>
                 );
@@ -1533,18 +1527,31 @@ router.get('/employee-scheduling', (req, res, next) => {
               // Skills state at tab level so we can show chips when the section is closed
               const [skillsList, setSkillsList] = useState(["Barista", "Cash Handling", "Milk Steaming", "Latte Art", "POS Operations", "Shift Lead", "Inventory", "Customer Service"]);
               const [selectedSkills, setSelectedSkills] = useState(["Customer Service", "Barista"]);
+              const [skillExpirations, setSkillExpirations] = useState({});
+              const [skillDocuments, setSkillDocuments] = useState({});
 
-              const SkillsChips = ({ selected, onRemove }) => (
+              const SkillsChips = ({ selected, onRemove, expirations }) => (
                 <div className="flex flex-wrap gap-2">
                   {(selected || []).length === 0 ? (
                     <span className="text-sm text-gray-500">No skills selected</span>
                   ) : (
-                    (selected || []).map((s) => (
-                      <span key={s} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-white text-[11px]" style={{backgroundColor: '#4f46e5'}}>
-                        <span className="leading-none">{s}</span>
-                        <button className="w-3.5 h-3.5 leading-none text-white/90 hover:text-white flex items-center justify-center" onClick={(e) => { e.stopPropagation(); onRemove(s); }}>×</button>
-                      </span>
-                    ))
+                    (selected || []).map((s) => {
+                      // Color chips like Identity: green (>180d), yellow (<=180d), red (expired)
+                      const exp = expirations ? expirations[s] : undefined;
+                      let cls = 'bg-emerald-100 text-emerald-700';
+                      if (exp) {
+                        const days = exp === 'perpetual' ? 365000 : daysUntilLocal(exp);
+                        if (days < 0) cls = 'bg-red-100 text-red-700';
+                        else if (days <= 180) cls = 'bg-amber-100 text-amber-700';
+                        else cls = 'bg-emerald-100 text-emerald-700';
+                      }
+                      return (
+                        <span key={s} className={"inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] " + cls}>
+                          <span className="leading-none">{s}</span>
+                          <button className="w-3.5 h-3.5 leading-none text-current/90 hover:text-current flex items-center justify-center" onClick={(e) => { e.stopPropagation(); onRemove(s); }}>×</button>
+                        </span>
+                      );
+                    })
                   )}
                 </div>
               );
@@ -1578,7 +1585,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                       </div>
                       <div>
                         <div className="text-gray-500">Date of birth</div>
-                        <div className="font-medium">{formatDate(employee.dob)}</div>
+                        <div className="font-medium">{formatShortDate(employee.dob)}</div>
                       </div>
                       <div className="md:col-span-2">
                         <div className="text-gray-500">Contact</div>
@@ -1608,7 +1615,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                         <div className="font-medium mb-2">Government IDs</div>
                         <div className="space-y-2">
                           {employee.documents.identity.map((doc, idx) => {
-                            const days = daysUntil(doc.expirationDate);
+                            const days = daysUntilLocal(doc.expirationDate);
                             const badgeClass = days < 0 ? 'bg-red-100 text-red-700' : days <= 30 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700';
                             const badgeText = days < 0 ? 'Expired' : days <= 30 ? 'Expiring soon' : 'Valid';
                             return (
@@ -1628,7 +1635,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                                 </div>
                                 <div className="text-right">
                                   <div className="text-xs text-gray-500">Expires</div>
-                                  <div className="font-medium text-sm">{formatDate(doc.expirationDate)}</div>
+                                  <div className="font-medium text-sm">{formatShortDate(doc.expirationDate)}</div>
                                   <div className={"inline-block mt-1 px-2 py-0.5 text-xs rounded " + badgeClass}>{badgeText}</div>
                                 </div>
                               </div>
@@ -1647,7 +1654,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                             <span className="w-3 h-3 rounded-full" style={{backgroundColor: r.color}}></span>
                             <div>
                               <div className="font-medium">{r.roleName} <span className="text-gray-500">→ {r.subRoleName}</span></div>
-                              <div className="text-xs text-gray-600">Effective {formatDate(r.effectiveDate)}</div>
+                              <div className="text-xs text-gray-600">Effective {formatShortDate(r.effectiveDate)}</div>
                             </div>
                           </div>
                           <button className="text-xs px-2 py-1 rounded border">Change</button>
@@ -1657,9 +1664,19 @@ router.get('/employee-scheduling', (req, res, next) => {
                     </div>
                   </Section>
 
-                  <Section title="Skills" open={expanded.skills} onToggle={() => toggle('skills')} inlineContent={<SkillsChips selected={selectedSkills} onRemove={(s) => setSelectedSkills((selectedSkills || []).filter((x) => x !== s))} />}>
+                  <Section title="Skills" open={expanded.skills} onToggle={() => toggle('skills')} inlineContent={<SkillsChips selected={selectedSkills} onRemove={(s) => setSelectedSkills((selectedSkills || []).filter((x) => x !== s))} expirations={skillExpirations} />}>
                     <div className="space-y-3">
-                      <SkillSelector skills={skillsList} selectedSkills={selectedSkills} onSelectionChange={setSelectedSkills} onSkillsChange={setSkillsList} allowManagement={true} />
+                      <SkillSelector 
+                        skills={skillsList}
+                        selectedSkills={selectedSkills}
+                        onSelectionChange={setSelectedSkills}
+                        onSkillsChange={setSkillsList}
+                        allowManagement={true}
+                        expirations={skillExpirations}
+                        onExpirationChange={setSkillExpirations}
+                        documents={skillDocuments}
+                        onDocumentsChange={setSkillDocuments}
+                      />
                     </div>
                   </Section>
 
