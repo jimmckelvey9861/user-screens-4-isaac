@@ -1166,6 +1166,7 @@ router.get('/employee-scheduling', (req, res, next) => {
             );
 
             const ProfileTab = () => {
+              
               const [expanded, setExpanded] = useState({
                 personal: true,
                 identity: true,
@@ -1348,7 +1349,7 @@ router.get('/employee-scheduling', (req, res, next) => {
 
               const Section = ({ title, open, onToggle, children, subtitle, closedContent, inlineContent }) => (
                 <div className="bg-white rounded-lg border border-gray-200 shadow-sm mb-4">
-                  <div role="button" tabIndex={0} onClick={onToggle} className="w-full flex items-start justify-between px-4 py-3">
+                  <div role="button" onClick={onToggle} className="w-full flex items-start justify-between px-4 py-3 cursor-pointer">
                     <div className="flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="font-medium text-gray-900">{title}</div>
@@ -1439,6 +1440,7 @@ router.get('/employee-scheduling', (req, res, next) => {
 
                 const handleCalendarClick = (e) => {
                   e.stopPropagation();
+                  e.preventDefault();
                   // Ensure we have a valid date value for the picker to open at
                   if (!date) {
                     const today = new Date();
@@ -1449,23 +1451,6 @@ router.get('/employee-scheduling', (req, res, next) => {
                   }
                   setMode('date');
                   setFocused(true);
-                  if (inputRef.current) {
-                    // Focus without scrolling, showPicker requires focus
-                    try { 
-                      inputRef.current.focus({ preventScroll: true }); 
-                    } catch (e) {
-                      // Fallback for browsers that don't support preventScroll
-                      const scrollX = window.scrollX;
-                      const scrollY = window.scrollY;
-                      inputRef.current.focus();
-                      window.scrollTo(scrollX, scrollY);
-                    }
-                    if (typeof inputRef.current.showPicker === 'function') {
-                      try {
-                        inputRef.current.showPicker();
-                      } catch (e) {}
-                    }
-                  }
                 };
 
                 const handleInfinityClick = (e) => {
@@ -1492,30 +1477,55 @@ router.get('/employee-scheduling', (req, res, next) => {
                     {floatingLabel && ((focused || (mode === 'date' && !!date))) ? (
                       <span className={("pointer-events-none absolute -top-2 left-2 text-xs px-1 bg-white " + (focused ? 'text-blue-600' : 'text-gray-600')).trim()}>{placeholderText}</span>
                     ) : null}
+                    {/* Transparent overlay date input - no showPicker, just native click */}
+                    <input 
+                      ref={inputRef} 
+                      type="date" 
+                      value={date} 
+                      onChange={(e) => { 
+                        const v = e.target.value; 
+                        if (v && v.length > 0) { 
+                          setMode('date'); 
+                          setDate(v); 
+                          if (onChangeRef.current) onChangeRef.current(v); 
+                        } else { 
+                          setMode(null); 
+                          setDate(''); 
+                          if (onChangeRef.current) onChangeRef.current(null); 
+                        } 
+                      }} 
+                      onFocus={(e) => {
+                        console.log('[DEBUG] Date input onFocus, preventing scroll');
+                        e.target.scrollIntoView = () => {}; // Disable scrollIntoView
+                        setFocused(true);
+                      }}
+                      onBlur={() => setFocused(false)}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                      style={{ width: '100%', height: '100%' }}
+                      tabIndex="-1"
+                    />
                     {!rightCalendar ? (
-                      <button type="button" onClick={handleCalendarClick} className={"transition-colors flex-shrink-0 text-blue-400 hover:text-blue-600"}>
+                      <div className="pointer-events-none flex-shrink-0 text-blue-400">
                         <Calendar className="w-4 h-4" />
-                      </button>
+                      </div>
                     ) : null}
-                    <div className="flex-1 min-w-0" onClick={handleCalendarClick}>
+                    <div className="pointer-events-none flex-1 min-w-0">
                       {mode === 'date' && date ? (
-                        <span className="text-sm font-medium text-gray-900 whitespace-nowrap cursor-pointer">{formatShortDate(date)}</span>
+                        <span className="text-sm font-medium text-gray-900 whitespace-nowrap">{formatShortDate(date)}</span>
                       ) : (
-                        <span className="text-sm text-gray-400 whitespace-nowrap cursor-pointer">{placeholderText}</span>
+                        <span className="text-sm text-gray-400 whitespace-nowrap">{placeholderText}</span>
                       )}
                     </div>
                     {rightCalendar ? (
-                      <button type="button" onClick={handleCalendarClick} className={"transition-colors flex-shrink-0 text-blue-400 hover:text-blue-600"}>
+                      <div className="pointer-events-none flex-shrink-0 text-blue-400">
                         <Calendar className="w-4 h-4" />
-                      </button>
+                      </div>
                     ) : null}
                     {!hideInfinity ? (
-                      <button type="button" onClick={handleInfinityClick} className={"transition-colors flex-shrink-0 " + (mode === 'perpetual' ? 'text-gray-300 cursor-default' : 'text-blue-400 hover:text-blue-600')} disabled={mode === 'perpetual'}>
+                      <button type="button" onClick={handleInfinityClick} className={"relative z-10 transition-colors flex-shrink-0 " + (mode === 'perpetual' ? 'text-gray-300 cursor-default' : 'text-blue-400 hover:text-blue-600')} disabled={mode === 'perpetual'}>
                         <InfinityIcon className="w-4 h-4" />
                       </button>
                     ) : null}
-                    {/* tiny in-viewport input for showPicker - positioned in center to prevent scroll */}
-                    <input ref={inputRef} type="date" value={date} onChange={(e) => { const v = e.target.value; if (v && v.length > 0) { setMode('date'); setDate(v); if (onChangeRef.current) onChangeRef.current(v); } else { setMode(null); setDate(''); if (onChangeRef.current) onChangeRef.current(null); } }} onBlur={() => setFocused(false)} style={{ position: 'absolute', top: '50%', left: '50%', width: '1px', height: '1px', opacity: 0, pointerEvents: 'none' }} aria-hidden="true" />
                   </div>
                 );
               };
@@ -1543,12 +1553,27 @@ router.get('/employee-scheduling', (req, res, next) => {
                 const allSelected = total > 0 && selectedCount === total;
 
                 const toggleSkill = (skill) => {
+                  const savedScrollY = window.scrollY;
+                  
                   const current = localSelected || [];
                   const next = current.includes(skill) ? current.filter((s) => s !== skill) : current.concat([skill]);
                   setLocalSelected(next);
                   // ensure expiration map retains existing entries; do not reset
                   setExpirationBySkill((prev) => { const m = { ...prev }; if (m[skill] === undefined) m[skill] = ''; onExpirationChange(m); return m; });
                   onSelectionChange(next);
+                  
+                  // Restore scroll position after React re-renders (fixes scroll-to-top bug)
+                  requestAnimationFrame(() => {
+                    if (window.scrollY !== savedScrollY) {
+                      window.scrollTo(0, savedScrollY);
+                    }
+                  });
+                  
+                  setTimeout(() => {
+                    if (window.scrollY !== savedScrollY) {
+                      window.scrollTo(0, savedScrollY);
+                    }
+                  }, 100);
                 };
 
                 const toggleAll = () => {
@@ -1606,10 +1631,10 @@ router.get('/employee-scheduling', (req, res, next) => {
                             return (
                               <tr key={skill} className="border-b border-gray-100 hover:bg-gray-50">
                                 <td className="p-2 text-center">
-                                  <input type="checkbox" checked={isSelected} onChange={(e) => { e.stopPropagation(); toggleSkill(skill); }} />
+                                  <input type="checkbox" checked={isSelected} onChange={(e) => { e.stopPropagation(); e.preventDefault(); toggleSkill(skill); }} />
                                 </td>
                                 <td className="p-2 text-sm text-gray-700">
-                                  <button className="text-left w-full" type="button" onClick={(e) => { e.stopPropagation(); toggleSkill(skill); }}>{skill}</button>
+                                  <button className="text-left w-full" type="button" onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleSkill(skill); }}>{skill}</button>
                                 </td>
                                 <td className="p-2">
                                   <ExpirationControl
