@@ -142,6 +142,54 @@ router.get('/employee-scheduling', (req, res, next) => {
                 <path d="M18.5 9.5c-1.657 0-3.5 1.5-6.5 3.5 3 2 4.843 3.5 6.5 3.5 2.485 0 4.5-2.015 4.5-4.5s-2.015-4.5-4.5-4.5zM5.5 9.5c1.657 0 3.5 1.5 6.5 3.5-3 2-4.843 3.5-6.5 3.5C3.015 16.5 1 14.485 1 12s2.015-4.5 4.5-4.5z" />
               </svg>
             );
+
+            // Additional small icons
+            const CameraIcon = ({ className, ...props }) => (
+              <svg className={className} {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M4 7h3l2-2h6l2 2h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/>
+                <circle cx="12" cy="13" r="4"/>
+              </svg>
+            );
+            // Birthday icon (cake with candles)
+            const BirthdayIcon = ({ className, ...props }) => (
+              <svg className={className} {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="11" width="18" height="9" rx="2"/>
+                <path d="M4 11c2-2 4-3 8-3s6 1 8 3"/>
+                <line x1="7" y1="7" x2="7" y2="11"/>
+                <line x1="12" y1="7" x2="12" y2="11"/>
+                <line x1="17" y1="7" x2="17" y2="11"/>
+                <path d="M7 6c0-1 .8-2 2-2s2 1 2 2"/>
+              </svg>
+            );
+            const LockIcon = ({ className, ...props }) => (
+              <svg className={className} {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="11" width="18" height="10" rx="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+            );
+            const AtIcon = ({ className, ...props }) => (
+              <svg className={className} {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M16 9a4 4 0 1 0-1.17 7.83h1.17a3 3 0 0 0 3-3V9"/>
+                <circle cx="12" cy="12" r="9"/>
+              </svg>
+            );
+            const MailIcon = ({ className, ...props }) => (
+              <svg className={className} {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M4 4h16v16H4z"/>
+                <path d="M4 6l8 6 8-6"/>
+              </svg>
+            );
+            const PhoneIcon = ({ className, ...props }) => (
+              <svg className={className} {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.86 19.86 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.86 19.86 0 0 1 2.09 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.86.33 1.7.63 2.5a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.58-1.2a2 2 0 0 1 2.11-.45c.8.3 1.64.51 2.5.63A2 2 0 0 1 22 16.92z"/>
+              </svg>
+            );
+            const MapPinIcon = ({ className, ...props }) => (
+              <svg className={className} {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 1 1 18 0z"/>
+                <circle cx="12" cy="10" r="3"/>
+              </svg>
+            );
             
             // Global scheduling template saved from Profile > Scheduling Preferences
             let savedAvailabilityTemplate = null; // { [dow:0..6]: number[48] }
@@ -222,7 +270,7 @@ router.get('/employee-scheduling', (req, res, next) => {
               const [showOpenShifts, setShowOpenShifts] = useState(false);
               const [is24HourView, setIs24HourView] = useState(false);
               const [editingAvailability, setEditingAvailability] = useState(false);
-              const [availabilityBrush, setAvailabilityBrush] = useState('available');
+              const [availabilityBrush, setAvailabilityBrush] = useState('preferred');
               const [isDrawing, setIsDrawing] = useState(false);
               const brushRef = useRef(availabilityBrush);
               const prevTimeSlotsRef = useRef(null);
@@ -239,6 +287,11 @@ router.get('/employee-scheduling', (req, res, next) => {
               useEffect(() => {
                 brushRef.current = availabilityBrush;
               }, [availabilityBrush]);
+              useEffect(() => {
+                if (editingAvailability) {
+                  setAvailabilityBrush('preferred');
+                }
+              }, [editingAvailability]);
 
 
               const roleColors = {
@@ -1126,6 +1179,28 @@ router.get('/employee-scheduling', (req, res, next) => {
               });
 
               const toggle = (key) => setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
+              
+              // Floating input component: shows a tiny label in the outline on focus or when filled
+              const FloatingInput = ({ value, onChange, placeholder, type = 'text', className = '', alwaysLabel = false, inputClassName = '' }) => {
+                const [focused, setFocused] = useState(false);
+                const showLabel = alwaysLabel || focused || (value !== undefined && value !== null && String(value).length > 0);
+                return (
+                  <div className={("relative " + className).trim()}>
+                    {showLabel ? (
+                      <span className={("pointer-events-none absolute -top-2 left-2 text-xs px-1 bg-white " + (focused ? 'text-blue-600' : 'text-gray-600')).trim()}>{placeholder}</span>
+                    ) : null}
+                    <input
+                      type={type}
+                      value={value}
+                      onChange={onChange}
+                      onFocus={() => setFocused(true)}
+                      onBlur={() => setFocused(false)}
+                      className={("border rounded px-2 py-2 w-full outline-none transition-colors " + (focused ? 'border-blue-600' : 'border-gray-300') + ' ' + inputClassName).trim()}
+                      placeholder={alwaysLabel ? '' : placeholder}
+                    />
+                  </div>
+                );
+              };
 
               // Date helpers
               const toLocalDate = (yyyyMmDd) => {
@@ -1200,6 +1275,40 @@ router.get('/employee-scheduling', (req, res, next) => {
                 },
                 analytics: { punctualityScore: 92, retentionFlag: true, performanceRating: 4.6 },
                 notes: { managerNotes: ['Shows initiative during peak hours.'], employeeNotes: ['Prefers morning shifts on weekdays.'] }
+              };
+
+              // Editable Personal Info state (Google Contacts style)
+              const [firstName, setFirstName] = useState(employee.firstName || '');
+              const [middleName, setMiddleName] = useState(employee.middleName || '');
+              const [lastName, setLastName] = useState(employee.lastName || '');
+              const [preferredName, setPreferredName] = useState(employee.preferredName || '');
+              const [emails, setEmails] = useState(employee.contact && employee.contact.email ? employee.contact.email.slice() : []);
+              const [phones, setPhones] = useState(employee.contact && employee.contact.phone ? employee.contact.phone.slice() : []);
+              const [addr, setAddr] = useState(employee.address || { line1: '', line2: '', city: '', state: '', postalCode: '', country: '' });
+              const [empNumber, setEmpNumber] = useState(employee.id || '');
+              const [showExtraNameFields, setShowExtraNameFields] = useState(false);
+              const addEmail = () => setEmails((prev) => prev.concat(['']));
+              const updateEmail = (idx, value) => setEmails((prev) => { const next = prev.slice(); next[idx] = value; return next; });
+              const removeEmail = (idx) => setEmails((prev) => prev.filter((_, i) => i !== idx));
+              const addPhone = () => { setPhones((prev) => prev.concat([''])); setPhoneTypes((prev) => prev.concat(['Mobile'])); };
+              const updatePhone = (idx, value) => setPhones((prev) => { const next = prev.slice(); next[idx] = value; return next; });
+              const removePhone = (idx) => { setPhones((prev) => prev.filter((_, i) => i !== idx)); setPhoneTypes((prev) => prev.filter((_, i) => i !== idx)); };
+              const updateAddr = (key, value) => setAddr((prev) => ({ ...prev, [key]: value }));
+              const [phoneTypes, setPhoneTypes] = useState((employee.contact && employee.contact.phone ? employee.contact.phone : []).map(() => 'Mobile'));
+              const updatePhoneType = (idx, value) => setPhoneTypes((prev) => { const next = prev.slice(); next[idx] = value; return next; });
+              // Social accounts
+              const [socialAccounts, setSocialAccounts] = useState([]);
+              const addSocial = () => setSocialAccounts((prev) => prev.concat([{ platform: 'X', value: '' }]));
+              const updateSocialPlatform = (idx, value) => setSocialAccounts((prev) => { const next = prev.slice(); next[idx] = { ...next[idx], platform: value }; return next; });
+              const updateSocialValue = (idx, value) => setSocialAccounts((prev) => { const next = prev.slice(); next[idx] = { ...next[idx], value }; return next; });
+              const removeSocial = (idx) => setSocialAccounts((prev) => prev.filter((_, i) => i !== idx));
+              const [newSocialValue, setNewSocialValue] = useState('');
+              const commitNewSocialIfFilled = () => {
+                const v = (newSocialValue || '').trim();
+                if (v.length > 0) {
+                  setSocialAccounts((prev) => prev.concat([{ platform: 'X', value: v }]));
+                  setNewSocialValue('');
+                }
               };
 
               const expiringSoon = [];
@@ -1318,12 +1427,13 @@ router.get('/employee-scheduling', (req, res, next) => {
                 );
               };
 
-              const ExpirationControl = ({ initialMode = null, initialDate = '', onChange }) => {
+              const ExpirationControl = ({ initialMode = null, initialDate = '', onChange, placeholderText = 'Expires', hideInfinity = false, rightCalendar = false, floatingLabel = false }) => {
                 const [mode, setMode] = useState(initialMode);
                 const [date, setDate] = useState(initialDate || new Date().toISOString().split('T')[0]);
                 const inputRef = useRef(null);
                 const onChangeRef = useRef(onChange);
                 useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+                const [focused, setFocused] = useState(false);
 
                 // No effect emission; only emit on user actions to avoid update loops
 
@@ -1338,12 +1448,22 @@ router.get('/employee-scheduling', (req, res, next) => {
                     setDate(yyyy + '-' + mm + '-' + dd);
                   }
                   setMode('date');
+                  setFocused(true);
                   if (inputRef.current) {
-                    try { inputRef.current.focus(); } catch (e) {}
+                    // Focus without scrolling, showPicker requires focus
+                    try { 
+                      inputRef.current.focus({ preventScroll: true }); 
+                    } catch (e) {
+                      // Fallback for browsers that don't support preventScroll
+                      const scrollX = window.scrollX;
+                      const scrollY = window.scrollY;
+                      inputRef.current.focus();
+                      window.scrollTo(scrollX, scrollY);
+                    }
                     if (typeof inputRef.current.showPicker === 'function') {
-                      inputRef.current.showPicker();
-                    } else {
-                      inputRef.current.click();
+                      try {
+                        inputRef.current.showPicker();
+                      } catch (e) {}
                     }
                   }
                 };
@@ -1368,24 +1488,34 @@ router.get('/employee-scheduling', (req, res, next) => {
                 };
 
                 return (
-                  <div className="relative flex items-center gap-2 px-3 py-1.5 border border-gray-300 rounded-lg bg-white">
-                    <button type="button" onClick={handleCalendarClick} className={"transition-colors flex-shrink-0 text-blue-400 hover:text-blue-600"}>
-                      <Calendar className="w-4 h-4" />
-                    </button>
+                  <div className="relative flex items-center gap-2 px-2 py-2 border border-gray-300 rounded bg-white">
+                    {floatingLabel && ((focused || (mode === 'date' && !!date))) ? (
+                      <span className={("pointer-events-none absolute -top-2 left-2 text-xs px-1 bg-white " + (focused ? 'text-blue-600' : 'text-gray-600')).trim()}>{placeholderText}</span>
+                    ) : null}
+                    {!rightCalendar ? (
+                      <button type="button" onClick={handleCalendarClick} className={"transition-colors flex-shrink-0 text-blue-400 hover:text-blue-600"}>
+                        <Calendar className="w-4 h-4" />
+                      </button>
+                    ) : null}
                     <div className="flex-1 min-w-0" onClick={handleCalendarClick}>
-                      {mode === 'date' ? (
+                      {mode === 'date' && date ? (
                         <span className="text-sm font-medium text-gray-900 whitespace-nowrap cursor-pointer">{formatShortDate(date)}</span>
-                      ) : mode === 'perpetual' ? (
-                        <span className="text-sm font-medium text-gray-900 whitespace-nowrap cursor-pointer">Perpetual</span>
                       ) : (
-                        <span className="text-sm text-gray-400 whitespace-nowrap cursor-pointer">Expires</span>
+                        <span className="text-sm text-gray-400 whitespace-nowrap cursor-pointer">{placeholderText}</span>
                       )}
                     </div>
-                    <button type="button" onClick={handleInfinityClick} className={"transition-colors flex-shrink-0 " + (mode === 'perpetual' ? 'text-gray-300 cursor-default' : 'text-blue-400 hover:text-blue-600')} disabled={mode === 'perpetual'}>
-                      <InfinityIcon className="w-4 h-4" />
-                    </button>
-                    {/* tiny in-viewport input for showPicker */}
-                    <input ref={inputRef} type="date" value={date} onChange={(e) => { const v = e.target.value; if (v && v.length > 0) { setMode('date'); setDate(v); if (onChangeRef.current) onChangeRef.current(v); } else { setMode(null); setDate(''); if (onChangeRef.current) onChangeRef.current(null); } }} style={{ position: 'absolute', top: 0, left: 0, width: '1px', height: '1px', opacity: 0, pointerEvents: 'none' }} aria-hidden="true" />
+                    {rightCalendar ? (
+                      <button type="button" onClick={handleCalendarClick} className={"transition-colors flex-shrink-0 text-blue-400 hover:text-blue-600"}>
+                        <Calendar className="w-4 h-4" />
+                      </button>
+                    ) : null}
+                    {!hideInfinity ? (
+                      <button type="button" onClick={handleInfinityClick} className={"transition-colors flex-shrink-0 " + (mode === 'perpetual' ? 'text-gray-300 cursor-default' : 'text-blue-400 hover:text-blue-600')} disabled={mode === 'perpetual'}>
+                        <InfinityIcon className="w-4 h-4" />
+                      </button>
+                    ) : null}
+                    {/* tiny in-viewport input for showPicker - positioned in center to prevent scroll */}
+                    <input ref={inputRef} type="date" value={date} onChange={(e) => { const v = e.target.value; if (v && v.length > 0) { setMode('date'); setDate(v); if (onChangeRef.current) onChangeRef.current(v); } else { setMode(null); setDate(''); if (onChangeRef.current) onChangeRef.current(null); } }} onBlur={() => setFocused(false)} style={{ position: 'absolute', top: '50%', left: '50%', width: '1px', height: '1px', opacity: 0, pointerEvents: 'none' }} aria-hidden="true" />
                   </div>
                 );
               };
@@ -1563,47 +1693,132 @@ router.get('/employee-scheduling', (req, res, next) => {
                   {/* Summary banner removed per request */}
 
                   <Section title="Personal Information" open={expanded.personal} onToggle={() => toggle('personal')}>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                      <div className="md:row-span-2">
-                        <div className="text-gray-500 mb-1">Photograph</div>
-                        <div className="w-40 h-40 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center border">
-                          <img src="https://i.pravatar.cc/200?img=12" alt="Profile" className="w-full h-full object-cover" />
-                        </div>
-                        <div className="flex gap-2 mt-2">
-                          <button className="px-2 py-1 text-sm border rounded" onClick={() => alert('Upload new photo')}>Upload</button>
-                          <button className="px-2 py-1 text-sm border rounded" onClick={() => alert('Change photo')}>Change</button>
-                          <button className="px-2 py-1 text-sm border rounded" onClick={() => alert('Remove photo')}>Remove</button>
-                        </div>
-                      </div>
-                      <div className="md:col-span-2">
-                        <div className="text-gray-500">Full name</div>
-                        <div className="font-medium">{employee.firstName} {employee.middleName} {employee.lastName}</div>
-                      </div>
-                      <div className="md:col-span-2">
-                        <div className="text-gray-500">Preferred name</div>
-                        <div className="font-medium">{employee.preferredName}</div>
-                      </div>
+                    <div className="space-y-4 text-sm max-w-[530px]">
                       <div>
-                        <div className="text-gray-500">Date of birth</div>
-                        <div className="font-medium">{formatShortDate(employee.dob)}</div>
+                        <div className="flex items-start gap-3">
+                          <div className="w-40 h-40 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center border relative">
+                            <img src="https://i.pravatar.cc/200?img=12" alt="Profile" className="w-full h-full object-cover" />
+                            <div className="absolute top-2 right-2 flex flex-col gap-2">
+                              <button className="p-1 text-gray-700 bg-white/80 rounded-full border" title="Change photo" onClick={() => alert('Change photo')}>
+                                <CameraIcon className="w-4 h-4" />
+                              </button>
+                              <button className="p-1 text-gray-700 bg-white/80 rounded-full border-0" title="Remove photo" onClick={() => alert('Remove photo')}>✕</button>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 flex justify-center text-gray-900"><User className="w-5 h-5" /></div>
+                            <div className="flex-1 grid grid-cols-2 gap-2">
+                              <FloatingInput value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="First name" />
+                              <FloatingInput value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Last name" />
+                            </div>
+                            <button className="p-1 text-gray-700" title="More name fields" onClick={() => setShowExtraNameFields(v => !v)}>
+                              <ChevronDown className="w-4 h-4" />
+                            </button>
+                          </div>
+                          {/* Optional middle and nickname */}
+                          {showExtraNameFields ? (
+                            <div className="flex items-center gap-2 mt-2">
+                              <div className="w-6 flex justify-center text-gray-900"><User className="w-5 h-5" /></div>
+                              <div className="flex-1 grid grid-cols-2 gap-2">
+                                <FloatingInput value={middleName} onChange={(e) => setMiddleName(e.target.value)} placeholder="Middle (optional)" />
+                                <FloatingInput value={preferredName} onChange={(e) => setPreferredName(e.target.value)} placeholder="Nickname (optional)" />
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="mt-4">
+                          <div className="flex items-center gap-2 max-w-xl">
+                            <div className="w-6 flex justify-center text-gray-900"><BirthdayIcon className="w-5 h-5" /></div>
+                            <div className="flex-1">
+                              <ExpirationControl initialMode={employee.dob ? 'date' : null} initialDate={employee.dob || ''} onChange={() => {}} placeholderText="Birthday" hideInfinity={true} rightCalendar={true} floatingLabel={true} />
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      <div className="md:col-span-2">
-                        <div className="text-gray-500">Contact</div>
-                        <div className="font-medium">{employee.contact.phone.join(', ')} • {employee.contact.email.join(', ')}</div>
+                      <div className="space-y-2">
+                        {emails.map((em, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                              <div className="w-6 flex justify-center text-gray-900"><MailIcon className="w-5 h-5" /></div>
+                              <FloatingInput value={em} onChange={(e) => updateEmail(idx, e.target.value)} placeholder="Email" className="flex-1" />
+                              {(emails.length > 1 && idx > 0) ? (
+                                <button className="text-xs px-2 py-1 border-0 bg-transparent" title="Remove" onClick={() => removeEmail(idx)} aria-label="Remove email">✕</button>
+                              ) : null}
+                              {idx === emails.length - 1 ? (
+                                <button className="text-xs px-2 py-1 border-0 bg-transparent" title="Add" onClick={addEmail} aria-label="Add email">＋</button>
+                              ) : null}
+                            </div>
+                          ))}
                       </div>
-                      <div className="md:col-span-2">
-                        <div className="text-gray-500">Address</div>
-                        <div className="font-medium">{employee.address.line1}{employee.address.line2 ? ', ' + employee.address.line2 : ''}, {employee.address.city}, {employee.address.state} {employee.address.postalCode}, {employee.address.country}</div>
+                      <div className="space-y-2">
+                        {phones.map((ph, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                              <div className="w-6 flex justify-center text-gray-900"><PhoneIcon className="w-5 h-5" /></div>
+                              <FloatingInput value={ph} onChange={(e) => updatePhone(idx, e.target.value)} placeholder="Phone" className="flex-1" />
+                              {(phones.length > 1 && idx > 0) ? (
+                                <button className="text-xs px-2 py-1 border-0 bg-transparent" title="Remove" onClick={() => removePhone(idx)} aria-label="Remove phone">✕</button>
+                              ) : null}
+                              <select className="border rounded px-2 py-1 text-sm" value={phoneTypes[idx] || 'Mobile'} onChange={(e) => updatePhoneType(idx, e.target.value)}>
+                                <option>Mobile</option>
+                                <option>Home</option>
+                                <option>Work</option>
+                                <option>Main</option>
+                                <option>Other</option>
+                              </select>
+                              {idx === phones.length - 1 ? (
+                                <button className="text-xs px-2 py-1 border-0 bg-transparent" title="Add" onClick={addPhone} aria-label="Add phone">＋</button>
+                              ) : null}
+                            </div>
+                          ))}
                       </div>
-                      <div className="md:col-span-2">
-                        <div className="text-gray-500">Emergency contact</div>
-                        <div className="font-medium">{employee.emergencyContacts[0].name} ({employee.emergencyContacts[0].relation}) — {employee.emergencyContacts[0].phone}</div>
-                      </div>
-                      <div className="md:col-span-2">
-                        <div className="text-gray-500">Password</div>
+                      <div className="space-y-2">
                         <div className="flex items-center gap-2">
-                          <input type="password" value="••••••••" readOnly className="border rounded px-2 py-1 text-sm w-48 bg-gray-50" />
-                          <button className="px-2 py-1 text-sm border rounded" onClick={() => alert('Password reset link sent')}>Reset</button>
+                            <div className="w-6 flex justify-center text-gray-900"><MapPinIcon className="w-5 h-5" /></div>
+                            <FloatingInput value={addr.line1} onChange={(e) => updateAddr('line1', e.target.value)} placeholder="Street address" className="flex-1" />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-6"></div>
+                            <FloatingInput value={addr.line2} onChange={(e) => updateAddr('line2', e.target.value)} placeholder="Apartment, suite, etc. (optional)" className="flex-1" />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-6"></div>
+                            <div className="grid grid-cols-3 gap-2 flex-1">
+                              <FloatingInput value={addr.city} onChange={(e) => updateAddr('city', e.target.value)} placeholder="City" />
+                              <FloatingInput value={addr.state} onChange={(e) => updateAddr('state', e.target.value)} placeholder="State" />
+                              <FloatingInput value={addr.postalCode} onChange={(e) => updateAddr('postalCode', e.target.value)} placeholder="ZIP" />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-6"></div>
+                            <FloatingInput value={addr.country} onChange={(e) => updateAddr('country', e.target.value)} placeholder="Country" className="flex-1" />
+                          </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 flex justify-center text-gray-900"><User className="w-5 h-5" /></div>
+                          <FloatingInput value={empNumber} onChange={(e) => setEmpNumber(e.target.value)} placeholder="Employee number" className="flex-1" alwaysLabel={true} />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        {socialAccounts.map((s, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                              <div className="w-6 flex justify-center text-gray-900 text-base font-medium">@</div>
+                              <FloatingInput value={s.value} onChange={(e) => updateSocialValue(idx, e.target.value)} placeholder="Social account" className="flex-1" alwaysLabel={true} />
+                              <button className="text-xs px-2 py-1 border-0 bg-transparent" title="Remove" onClick={() => removeSocial(idx)} aria-label="Remove social">✕</button>
+                            </div>
+                          ))}
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 flex justify-center text-gray-900 text-base font-medium">@</div>
+                            <FloatingInput value={newSocialValue} onChange={(e) => setNewSocialValue(e.target.value)} placeholder="Social account (optional)" className="flex-1" alwaysLabel={true} />
+                            <button className="text-xs px-2 py-1 border-0 bg-transparent" title="Add" onClick={commitNewSocialIfFilled} aria-label="Add social">＋</button>
+                          </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 flex justify-center text-gray-900"><LockIcon className="w-5 h-5" /></div>
+                          <FloatingInput value={''} onChange={() => {}} placeholder="Password" className="flex-1" alwaysLabel={true} />
+                          <button className="text-xl px-2 py-1 border-0 bg-transparent" title="Replace" onClick={() => alert('Password reset link sent')}>⟳</button>
                         </div>
                       </div>
                     </div>
