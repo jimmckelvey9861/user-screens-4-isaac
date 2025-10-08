@@ -1455,8 +1455,22 @@ router.get('/employee-scheduling', (req, res, next) => {
 
                 const handleInfinityClick = (e) => {
                   e.stopPropagation();
+                  const savedScrollY = window.scrollY;
+                  
                   setMode('perpetual');
                   if (onChangeRef.current) onChangeRef.current('perpetual');
+                  
+                  // Restore scroll position after React re-renders
+                  requestAnimationFrame(() => {
+                    if (window.scrollY !== savedScrollY) {
+                      window.scrollTo(0, savedScrollY);
+                    }
+                  });
+                  setTimeout(() => {
+                    if (window.scrollY !== savedScrollY) {
+                      window.scrollTo(0, savedScrollY);
+                    }
+                  }, 100);
                 };
 
                 const formatDate = (dateStr) => {
@@ -1483,7 +1497,9 @@ router.get('/employee-scheduling', (req, res, next) => {
                       type="date" 
                       value={date} 
                       onChange={(e) => { 
-                        const v = e.target.value; 
+                        const v = e.target.value;
+                        const savedScrollY = window.scrollY;
+                        
                         if (v && v.length > 0) { 
                           setMode('date'); 
                           setDate(v); 
@@ -1492,10 +1508,21 @@ router.get('/employee-scheduling', (req, res, next) => {
                           setMode(null); 
                           setDate(''); 
                           if (onChangeRef.current) onChangeRef.current(null); 
-                        } 
+                        }
+                        
+                        // Restore scroll position after React re-renders
+                        requestAnimationFrame(() => {
+                          if (window.scrollY !== savedScrollY) {
+                            window.scrollTo(0, savedScrollY);
+                          }
+                        });
+                        setTimeout(() => {
+                          if (window.scrollY !== savedScrollY) {
+                            window.scrollTo(0, savedScrollY);
+                          }
+                        }, 100);
                       }} 
                       onFocus={(e) => {
-                        console.log('[DEBUG] Date input onFocus, preventing scroll');
                         e.target.scrollIntoView = () => {}; // Disable scrollIntoView
                         setFocused(true);
                       }}
