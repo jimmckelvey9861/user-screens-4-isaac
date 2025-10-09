@@ -1443,7 +1443,6 @@ router.get('/employee-scheduling', (req, res, next) => {
                   e.preventDefault();
                   const savedScrollY = window.scrollY;
                   
-                  console.log('[DEBUG] handleCalendarClick called');
                   // Ensure we have a valid date value for the picker to open at
                   if (!date) {
                     const today = new Date();
@@ -1454,18 +1453,14 @@ router.get('/employee-scheduling', (req, res, next) => {
                   }
                   // Open the native date picker
                   if (inputRef.current) {
-                    console.log('[DEBUG] Attempting to open picker');
                     inputRef.current.focus();
                     if (inputRef.current.showPicker) {
                       try {
                         inputRef.current.showPicker();
-                        console.log('[DEBUG] showPicker succeeded');
                       } catch (err) {
-                        console.log('[DEBUG] showPicker failed, trying click:', err);
                         inputRef.current.click();
                       }
                     } else {
-                      console.log('[DEBUG] No showPicker, using click');
                       inputRef.current.click();
                     }
                   }
@@ -1487,13 +1482,9 @@ router.get('/employee-scheduling', (req, res, next) => {
                   e.stopPropagation();
                   const savedScrollY = window.scrollY;
                   
-                  console.log('[DEBUG] handleInfinityClick called, setting mode to perpetual');
                   setMode('perpetual');
                   if (onChangeRef.current) {
-                    console.log('[DEBUG] Calling onChange with perpetual');
                     onChangeRef.current('perpetual');
-                  } else {
-                    console.log('[DEBUG] No onChange callback');
                   }
                   
                   // Restore scroll position after React re-renders
@@ -1581,6 +1572,8 @@ router.get('/employee-scheduling', (req, res, next) => {
                     <div className="pointer-events-none flex-1 min-w-0 relative z-5">
                       {mode === 'date' && date ? (
                         <span className="text-sm font-medium text-gray-900 whitespace-nowrap">{formatShortDate(date)}</span>
+                      ) : mode === 'perpetual' ? (
+                        <span className="text-sm font-medium text-gray-900 whitespace-nowrap">Perpetual</span>
                       ) : (
                         <span className="text-sm text-gray-400 whitespace-nowrap">{placeholderText}</span>
                       )}
