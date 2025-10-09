@@ -1436,7 +1436,13 @@ router.get('/employee-scheduling', (req, res, next) => {
                 useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
                 const [focused, setFocused] = useState(false);
 
-                // No effect emission; only emit on user actions to avoid update loops
+                // Sync mode and date from props when they change
+                useEffect(() => {
+                  setMode(initialMode);
+                }, [initialMode]);
+                useEffect(() => {
+                  setDate(initialDate || new Date().toISOString().split('T')[0]);
+                }, [initialDate]);
 
                 const handleCalendarClick = (e) => {
                   e.stopPropagation();
@@ -1966,7 +1972,20 @@ router.get('/employee-scheduling', (req, res, next) => {
                     </div>
                   </Section>
 
-                  <Section title="Skills" open={expanded.skills} onToggle={() => toggle('skills')} inlineContent={<SkillsChips selected={selectedSkills} onRemove={(s) => setSelectedSkills((selectedSkills || []).filter((x) => x !== s))} expirations={skillExpirations} />}>
+                  <Section title="Skills" open={expanded.skills} onToggle={() => toggle('skills')} inlineContent={<SkillsChips selected={selectedSkills} onRemove={(s) => {
+                    const savedScrollY = window.scrollY;
+                    setSelectedSkills((selectedSkills || []).filter((x) => x !== s));
+                    requestAnimationFrame(() => {
+                      if (window.scrollY !== savedScrollY) {
+                        window.scrollTo(0, savedScrollY);
+                      }
+                    });
+                    setTimeout(() => {
+                      if (window.scrollY !== savedScrollY) {
+                        window.scrollTo(0, savedScrollY);
+                      }
+                    }, 100);
+                  }} expirations={skillExpirations} />}>
                     <div className="space-y-3">
                       <SkillSelector 
                         skills={skillsList}
