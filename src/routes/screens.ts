@@ -1449,8 +1449,19 @@ router.get('/employee-scheduling', (req, res, next) => {
                     const dd = String(today.getDate()).padStart(2, '0');
                     setDate(yyyy + '-' + mm + '-' + dd);
                   }
-                  setMode('date');
-                  setFocused(true);
+                  // Open the native date picker
+                  if (inputRef.current) {
+                    inputRef.current.focus();
+                    if (inputRef.current.showPicker) {
+                      try {
+                        inputRef.current.showPicker();
+                      } catch (err) {
+                        inputRef.current.click();
+                      }
+                    } else {
+                      inputRef.current.click();
+                    }
+                  }
                 };
 
                 const handleInfinityClick = (e) => {
@@ -1491,7 +1502,13 @@ router.get('/employee-scheduling', (req, res, next) => {
                     {floatingLabel && ((focused || (mode === 'date' && !!date))) ? (
                       <span className={("pointer-events-none absolute -top-2 left-2 text-xs px-1 bg-white " + (focused ? 'text-blue-600' : 'text-gray-600')).trim()}>{placeholderText}</span>
                     ) : null}
-                    {/* Transparent overlay date input - no showPicker, just native click */}
+                    {/* Clickable overlay for date input - covers everything except the infinity button */}
+                    <div 
+                      className="absolute inset-0 cursor-pointer z-0"
+                      style={{ right: hideInfinity ? '0' : '32px' }}
+                      onClick={handleCalendarClick}
+                    />
+                    {/* Hidden date input for native picker */}
                     <input 
                       ref={inputRef} 
                       type="date" 
@@ -1527,16 +1544,16 @@ router.get('/employee-scheduling', (req, res, next) => {
                         setFocused(true);
                       }}
                       onBlur={() => setFocused(false)}
-                      className="absolute inset-0 opacity-0 cursor-pointer"
-                      style={{ width: '100%', height: '100%' }}
+                      className="absolute opacity-0 pointer-events-none"
+                      style={{ left: '-9999px' }}
                       tabIndex="-1"
                     />
                     {!rightCalendar ? (
-                      <div className="pointer-events-none flex-shrink-0 text-blue-400">
+                      <div className="pointer-events-none flex-shrink-0 text-blue-400 relative z-5">
                         <Calendar className="w-4 h-4" />
                       </div>
                     ) : null}
-                    <div className="pointer-events-none flex-1 min-w-0">
+                    <div className="pointer-events-none flex-1 min-w-0 relative z-5">
                       {mode === 'date' && date ? (
                         <span className="text-sm font-medium text-gray-900 whitespace-nowrap">{formatShortDate(date)}</span>
                       ) : (
@@ -1544,12 +1561,12 @@ router.get('/employee-scheduling', (req, res, next) => {
                       )}
                     </div>
                     {rightCalendar ? (
-                      <div className="pointer-events-none flex-shrink-0 text-blue-400">
+                      <div className="pointer-events-none flex-shrink-0 text-blue-400 relative z-5">
                         <Calendar className="w-4 h-4" />
                       </div>
                     ) : null}
                     {!hideInfinity ? (
-                      <button type="button" onClick={handleInfinityClick} className={"relative z-10 transition-colors flex-shrink-0 " + (mode === 'perpetual' ? 'text-gray-300 cursor-default' : 'text-blue-400 hover:text-blue-600')} disabled={mode === 'perpetual'}>
+                      <button type="button" onClick={handleInfinityClick} className={"relative z-20 transition-colors flex-shrink-0 " + (mode === 'perpetual' ? 'text-gray-300 cursor-default' : 'text-blue-400 hover:text-blue-600')} disabled={mode === 'perpetual'}>
                         <InfinityIcon className="w-4 h-4" />
                       </button>
                     ) : null}
