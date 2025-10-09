@@ -1441,6 +1441,9 @@ router.get('/employee-scheduling', (req, res, next) => {
                 const handleCalendarClick = (e) => {
                   e.stopPropagation();
                   e.preventDefault();
+                  const savedScrollY = window.scrollY;
+                  
+                  console.log('[DEBUG] handleCalendarClick called');
                   // Ensure we have a valid date value for the picker to open at
                   if (!date) {
                     const today = new Date();
@@ -1451,25 +1454,47 @@ router.get('/employee-scheduling', (req, res, next) => {
                   }
                   // Open the native date picker
                   if (inputRef.current) {
+                    console.log('[DEBUG] Attempting to open picker');
                     inputRef.current.focus();
                     if (inputRef.current.showPicker) {
                       try {
                         inputRef.current.showPicker();
+                        console.log('[DEBUG] showPicker succeeded');
                       } catch (err) {
+                        console.log('[DEBUG] showPicker failed, trying click:', err);
                         inputRef.current.click();
                       }
                     } else {
+                      console.log('[DEBUG] No showPicker, using click');
                       inputRef.current.click();
                     }
                   }
+                  
+                  // Restore scroll position
+                  requestAnimationFrame(() => {
+                    if (window.scrollY !== savedScrollY) {
+                      window.scrollTo(0, savedScrollY);
+                    }
+                  });
+                  setTimeout(() => {
+                    if (window.scrollY !== savedScrollY) {
+                      window.scrollTo(0, savedScrollY);
+                    }
+                  }, 100);
                 };
 
                 const handleInfinityClick = (e) => {
                   e.stopPropagation();
                   const savedScrollY = window.scrollY;
                   
+                  console.log('[DEBUG] handleInfinityClick called, setting mode to perpetual');
                   setMode('perpetual');
-                  if (onChangeRef.current) onChangeRef.current('perpetual');
+                  if (onChangeRef.current) {
+                    console.log('[DEBUG] Calling onChange with perpetual');
+                    onChangeRef.current('perpetual');
+                  } else {
+                    console.log('[DEBUG] No onChange callback');
+                  }
                   
                   // Restore scroll position after React re-renders
                   requestAnimationFrame(() => {
@@ -1544,8 +1569,8 @@ router.get('/employee-scheduling', (req, res, next) => {
                         setFocused(true);
                       }}
                       onBlur={() => setFocused(false)}
-                      className="absolute opacity-0 pointer-events-none"
-                      style={{ left: '-9999px' }}
+                      className="absolute opacity-0"
+                      style={{ top: '50%', left: '50%', width: '1px', height: '1px', pointerEvents: 'auto' }}
                       tabIndex="-1"
                     />
                     {!rightCalendar ? (
