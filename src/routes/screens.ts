@@ -754,10 +754,10 @@ router.get('/employee-scheduling', (req, res, next) => {
               const getCellColor = (state) => {
                 switch(state) {
                   case 0: return 'bg-gray-100';
-                  case 1: return 'bg-white';
+                  case 1: return 'bg-yellow-100';
                   case 2: return 'bg-green-100';
                   case 3: return 'bg-gray-400';
-                  default: return 'bg-white';
+                  default: return 'bg-yellow-100';
                 }
               };
 
@@ -905,7 +905,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                             className="w-4 h-4"
                           />
                           <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 bg-white border border-gray-300 rounded"></div>
+                            <div className="w-6 h-6 bg-yellow-100 border border-gray-300 rounded"></div>
                             <span className="text-sm">Available</span>
                           </div>
                         </label>
@@ -923,9 +923,35 @@ router.get('/employee-scheduling', (req, res, next) => {
                             <span className="text-sm">Preferred</span>
                           </div>
                         </label>
-                        <span className="text-sm text-gray-600 ml-auto">
-                          Click and drag to paint availability • Current: <strong>{availabilityBrush}</strong>
-                        </span>
+                        <button 
+                          onClick={() => {
+                            // Copy current week's availability to savedAvailabilityTemplate
+                            const template = {};
+                            for (let dow = 0; dow < 7; dow++) {
+                              const arr = new Array(48).fill(1);
+                              // Find the absolute day number for this DOW in the current week
+                              for (let dayIdx = 0; dayIdx < weekDays.length; dayIdx++) {
+                                const colDow = getDowForColumn(dayIdx);
+                                if (colDow === dow) {
+                                  const absDay = getAbsDayNumForColumn(dayIdx);
+                                  const dayArr = availabilityByDay[String(absDay)];
+                                  if (dayArr && Array.isArray(dayArr)) {
+                                    for (let i = 0; i < 48; i++) {
+                                      arr[i] = dayArr[i];
+                                    }
+                                  }
+                                  break;
+                                }
+                              }
+                              template[dow] = arr;
+                            }
+                            savedAvailabilityTemplate = template;
+                            alert('Availability saved as template! This will be applied to all future weeks.');
+                          }}
+                          className="px-3 py-1 text-sm rounded border bg-white hover:bg-gray-100 ml-auto"
+                        >
+                          Save as Template
+                        </button>
                       </div>
                     </div>
                   )}
@@ -994,7 +1020,8 @@ router.get('/employee-scheduling', (req, res, next) => {
                                   {(() => {
                                     const shift = getShiftAtSlot(dow, slotIndex);
                                     const hideOpen = !showOpenShifts && shift && shift.status === 'open';
-                                    if (!shift || hideOpen) return null;
+                                    // Hide all shifts when editing availability
+                                    if (!shift || hideOpen || editingAvailability) return null;
                                     return (
                                   <div 
                                     className="rounded cursor-pointer"
@@ -1124,7 +1151,7 @@ router.get('/employee-scheduling', (req, res, next) => {
                       <span>Unavailable</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <div className="w-4 h-4 bg-white border border-gray-300 rounded"></div>
+                      <div className="w-4 h-4 bg-yellow-100 border border-gray-300 rounded"></div>
                       <span>Available</span>
                     </div>
                     <div className="flex items-center gap-1">
@@ -2019,178 +2046,6 @@ router.get('/employee-scheduling', (req, res, next) => {
                     </div>
                   </Section>
 
-                  <Section title="Scheduling Preferences" open={expanded.scheduling} onToggle={() => toggle('scheduling')}>
-                    <div className="space-y-4 text-sm">
-                      {(() => {
-                        // Inline component: Scheduling Preferences Template (Week / 2W), paintable
-                        const Template = () => {
-                          const tplView = 'week';
-                          const [tplBrush, setTplBrush] = useState('available'); // unavailable|available|preferred
-                          const [tplDrawing, setTplDrawing] = useState(false);
-
-                          const getTplStoreHours = (dow) => {
-                            const isWeekend = dow === 0 || dow === 6;
-                            return { open: isWeekend ? 10 : 9, close: isWeekend ? 22 : 19 };
-                          };
-
-                          const tplWeeks = 1;
-                          const tplDayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-                          const tplWeekDays = Array.from({length: tplWeeks * 7}, (_, i) => tplDayNames[i % 7]);
-
-                          const generateTplTimeSlots = () => {
-                            let earliest = 24; let latest = 0;
-                            for (let d = 0; d < 7; d++) {
-                              const h = getTplStoreHours(d);
-                              earliest = Math.min(earliest, h.open);
-                              latest = Math.max(latest, h.close);
-                            }
-                            const startHour = earliest - 1;
-                            const endHour = latest + 1;
-                            const slots = [];
-                            for (let hour = startHour; hour < endHour; hour += 0.5) {
-                              const hourInt = Math.floor(hour);
-                              const minute = (hour % 1 === 0) ? 0 : 30;
-                              const label = (hour % 1 === 0 && hourInt % 2 === 0)
-                                ? (hourInt === 0 ? '12a' : (hourInt < 12 ? (hourInt + 'a') : (hourInt === 12 ? '12p' : ((hourInt - 12) + 'p'))))
-                                : '';
-                              slots.push({ hour: hourInt, minute, label });
-                            }
-                            return slots;
-                          };
-
-                          const [tplSlots, setTplSlots] = useState(() => generateTplTimeSlots());
-                          useEffect(() => { setTplSlots(generateTplTimeSlots()); }, [tplView]);
-
-                          const [tplAvail, setTplAvail] = useState(() => {
-                            const init = {};
-                            for (let d = 0; d < tplWeekDays.length; d++) {
-                              const dow = d % 7;
-                              for (let s = 0; s < tplSlots.length; s++) {
-                                const key = d + '-' + s;
-                                const outside = tplSlots[s] ? (tplSlots[s].hour < getTplStoreHours(dow).open || tplSlots[s].hour >= getTplStoreHours(dow).close) : false;
-                                init[key] = outside ? 3 : 1;
-                              }
-                            }
-                            return init;
-                          });
-                          useEffect(() => {
-                            setTplAvail(prev => {
-                              const next = {};
-                              for (let d = 0; d < tplWeekDays.length; d++) {
-                                const dow = d % 7;
-                                for (let s = 0; s < tplSlots.length; s++) {
-                                  const key = d + '-' + s;
-                                  const prevVal = prev[key];
-                                  const outside = tplSlots[s] ? (tplSlots[s].hour < getTplStoreHours(dow).open || tplSlots[s].hour >= getTplStoreHours(dow).close) : false;
-                                  next[key] = typeof prevVal === 'number' ? prevVal : (outside ? 3 : 1);
-                                }
-                              }
-                              return next;
-                            });
-                          }, [tplSlots, tplWeekDays.length]);
-
-                          const hoursByState = useMemo(() => {
-                            const tally = { 0: 0, 1: 0, 2: 0 };
-                            const stepHours = 0.5;
-                            for (let d = 0; d < tplWeekDays.length; d++) {
-                              for (let s = 0; s < tplSlots.length; s++) {
-                                const v = tplAvail[d + '-' + s];
-                                if (v === 0 || v === 1 || v === 2) tally[v] += stepHours;
-                              }
-                            }
-                            return tally;
-                          }, [tplAvail, tplSlots.length, tplWeekDays.length]);
-
-                          const tplGetColor = (state) => {
-                            switch(state) {
-                              case 0: return 'bg-gray-100'; // unavailable
-                              case 1: return 'bg-yellow-100'; // available (light yellow)
-                              case 2: return 'bg-green-100'; // preferred
-                              case 3: return 'bg-gray-400'; // closed
-                              default: return 'bg-yellow-100';
-                            }
-                          };
-
-                          const paint = (dayIndex, slotIndex) => {
-                            const key = dayIndex + '-' + slotIndex;
-                            const current = tplAvail[key];
-                            if (current === 3) return;
-                            const val = tplBrush === 'unavailable' ? 0 : (tplBrush === 'available' ? 1 : 2);
-                            setTplAvail(prev => ({ ...prev, [key]: val }));
-                          };
-
-                          const saveTemplate = (e) => {
-                            e.stopPropagation();
-                            // Build a weekly template by DOW → 48-slot array (0/1/2/3)
-                            const weekly = {};
-                            for (let dow = 0; dow < 7; dow++) {
-                              const arr = new Array(48).fill(1);
-                              for (let s = 0; s < tplSlots.length; s++) {
-                                const v = tplAvail[dow + '-' + s];
-                                const idx = tplSlots[s].hour * 2 + (tplSlots[s].minute === 30 ? 1 : 0);
-                                arr[idx] = v;
-                              }
-                              weekly[dow] = arr;
-                            }
-                            savedAvailabilityTemplate = weekly;
-                            alert('Scheduling template saved and applied to Schedule view background');
-                          };
-
-                          return (
-                            <div className="border rounded" onMouseUp={() => setTplDrawing(false)} onMouseLeave={() => setTplDrawing(false)}>
-                              <div className="px-3 py-2 flex items-center justify-between border-b bg-gray-50">
-                                <div className="flex items-center gap-3">
-                                  <div className="text-sm font-medium"></div>
-                                  <div className="flex items-center gap-4 ml-2">
-                                    <label className="flex items-center text-xs cursor-pointer">
-                                      <input type="radio" name="tplbrush" checked={tplBrush==='unavailable'} onChange={()=>setTplBrush('unavailable')} />
-                                      <span className="ml-1 px-1 rounded border border-gray-300 bg-gray-100">Unavailable</span>
-                                      <span className="ml-1 text-[11px] text-gray-600 inline-block w-14 text-right" style={{fontVariantNumeric:'tabular-nums', marginRight: '10px'}}>{hoursByState[0].toFixed(1)} h</span>
-                                    </label>
-                                    <label className="flex items-center text-xs cursor-pointer">
-                                      <input type="radio" name="tplbrush" checked={tplBrush==='available'} onChange={()=>setTplBrush('available')} />
-                                      <span className="ml-1 px-1 rounded border border-gray-300 bg-yellow-100">Available</span>
-                                      <span className="ml-1 text-[11px] text-gray-600 inline-block w-14 text-right" style={{fontVariantNumeric:'tabular-nums', marginRight: '10px'}}>{hoursByState[1].toFixed(1)} h</span>
-                                    </label>
-                                    <label className="flex items-center text-xs cursor-pointer">
-                                      <input type="radio" name="tplbrush" checked={tplBrush==='preferred'} onChange={()=>setTplBrush('preferred')} />
-                                      <span className="ml-1 px-1 rounded border border-gray-300 bg-green-100">Preferred</span>
-                                      <span className="ml-1 text-[11px] text-gray-600 inline-block w-14 text-right" style={{fontVariantNumeric:'tabular-nums', marginRight: '10px'}}>{hoursByState[2].toFixed(1)} h</span>
-                                    </label>
-                                  </div>
-                                </div>
-                                <button className="px-3 py-1 text-xs rounded border bg-white hover:bg-gray-100" onClick={saveTemplate}>Save Template</button>
-                              </div>
-                              <div className="grid" style={{gridTemplateColumns: ('auto repeat(' + tplWeekDays.length + ', 1fr)')}}>
-                                <div className="border-r border-b bg-gray-50 p-2"></div>
-                                {tplWeekDays.map((d, i) => (
-                                  <div key={i} className="border-r border-b bg-gray-50 p-2 text-center text-xs font-medium">{d}</div>
-                                ))}
-                                {tplSlots.map((slot, sIdx) => (
-                                  <React.Fragment key={sIdx}>
-                                    <div className="border-r border-b bg-gray-50 px-2 text-[10px] text-gray-600 text-right flex items-center justify-end select-none pointer-events-none" style={{height: '20px'}}>
-                                      {slot.label}
-                                    </div>
-                                    {tplWeekDays.map((_, dIdx) => {
-                                      const key = dIdx + '-' + sIdx;
-                                      const color = tplGetColor(tplAvail[key]);
-                                      return (
-                                        <div key={key} className={("border-r border-b relative select-none " + color)} style={{height: '20px'}}
-                                          onMouseDown={() => { setTplDrawing(true); paint(dIdx, sIdx); }}
-                                          onMouseEnter={() => { if (tplDrawing) paint(dIdx, sIdx); }}
-                                        />
-                                      );
-                                    })}
-                                  </React.Fragment>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        };
-                        return <Template />;
-                      })()}
-                    </div>
-                  </Section>
 
                   <Section title="History & Analytics" open={expanded.history} onToggle={() => toggle('history')}>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
